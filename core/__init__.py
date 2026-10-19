@@ -7,6 +7,8 @@ from .dissolve import execute_dissolve
 from .topology import execute_topology
 from .normals import execute_normals
 from .object_data import execute_object_data
+from .simplification import execute_simplification
+from .validation import evaluate_geometric_deviation, sample_mesh_surface
 from .pipeline import run_meshforge_pipeline, duplicate_object_non_destructive
 from .report import format_report_as_text, export_report_to_file
 
@@ -18,6 +20,9 @@ __all__ = [
     "execute_topology",
     "execute_normals",
     "execute_object_data",
+    "execute_simplification",
+    "evaluate_geometric_deviation",
+    "sample_mesh_surface",
     "run_meshforge_pipeline",
     "duplicate_object_non_destructive",
     "format_report_as_text",

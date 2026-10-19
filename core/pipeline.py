@@ -15,6 +15,7 @@ from .dissolve import execute_dissolve
 from .topology import execute_topology
 from .normals import execute_normals
 from .object_data import execute_object_data
+from .simplification import execute_simplification
 
 
 def duplicate_object_non_destructive(source_obj: bpy.types.Object, suffix: str = "_MF_Optimized") -> bpy.types.Object:
@@ -42,6 +43,8 @@ def extract_applied_parameters(props: Any) -> Dict[str, Any]:
         "remove_non_manifold_faces", "remove_non_manifold_verts", "make_planar", "flatten_faces",
         "enable_dissolve", "dissolve_mode", "dissolve_angle", "preserve_sharp", "preserve_seams",
         "preserve_materials", "preserve_uvs", "preserve_boundaries",
+        "enable_simplification", "simplification_mode", "simplification_percentage", "simplification_target_triangles",
+        "enable_simplification_tolerance", "simplification_max_tolerance", "tolerance_relative", "collapse_triangulate",
         "enable_topology", "topology_mode", "triangulate_quad_method", "triangulate_ngon_method",
         "quads_face_threshold", "quads_shape_threshold",
         "enable_normals", "recalculate_normals", "recalculate_direction", "apply_auto_smooth",
@@ -154,7 +157,17 @@ def run_meshforge_pipeline(source_obj: bpy.types.Object, props: Any) -> Dict[str
             report["phase_timings"]["dissolve"] = time.perf_counter() - t0
             report["logs"].extend(res_dis.get("log", []))
 
-        # 5. Topology (Reconstruction topologique)
+        # 5. Réduction adaptative (Simplification géométrique - Phase C)
+        if getattr(props, "enable_simplification", False):
+            t0 = time.perf_counter()
+            res_simp = execute_simplification(target_obj, props, orig_reference_obj=source_obj)
+            report["phase_timings"]["simplification"] = time.perf_counter() - t0
+            report["logs"].extend(res_simp.get("log", []))
+            report["simplification_details"] = res_simp
+            if res_simp.get("geometric_validation"):
+                report["geometric_validation"] = res_simp.get("geometric_validation")
+
+        # 6. Topology (Reconstruction topologique)
         if getattr(props, "enable_topology", False):
             t0 = time.perf_counter()
             res_top = execute_topology(target_obj, props)

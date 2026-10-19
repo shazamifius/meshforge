@@ -192,6 +192,46 @@ class VIEW3D_PT_meshforge_dissolve(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         layout.operator("meshforge.dissolve", text="Exécuter Dissolution", icon='MOD_DECIM')
 
 
+class VIEW3D_PT_meshforge_simplification(VIEW3D_PT_meshforge_base, bpy.types.Panel):
+    """Section 4 - Simplification intelligente (Phase C)"""
+    bl_idname = 'VIEW3D_PT_meshforge_simplification'
+    bl_label = '4. Simplification Intelligente'
+    bl_parent_id = 'VIEW3D_PT_meshforge_main'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        props = context.scene.meshforge_settings
+        self.layout.prop(props, "enable_simplification", text="")
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.meshforge_settings
+        layout.active = props.enable_simplification
+
+        col = layout.column(align=True)
+        col.prop(props, "simplification_mode")
+
+        if props.simplification_mode == 'PERCENTAGE':
+            col.prop(props, "simplification_percentage")
+        elif props.simplification_mode == 'BUDGET_TRIANGLES':
+            col.prop(props, "simplification_target_triangles")
+
+        layout.separator()
+
+        box_tol = layout.box()
+        box_tol.prop(props, "enable_simplification_tolerance")
+        if props.enable_simplification_tolerance:
+            box_tol.prop(props, "simplification_max_tolerance")
+            box_tol.prop(props, "tolerance_relative")
+
+        col_opt = layout.column(align=True)
+        col_opt.prop(props, "collapse_triangulate")
+        col_opt.prop(props, "preserve_normals_angle")
+
+        layout.separator()
+        layout.operator("meshforge.simplification", text="Exécuter Simplification", icon='MOD_DECIM')
+
+
 class VIEW3D_PT_meshforge_topology(VIEW3D_PT_meshforge_base, bpy.types.Panel):
     """Section 3.4 - Topology"""
     bl_idname = 'VIEW3D_PT_meshforge_topology'
@@ -348,6 +388,7 @@ classes = (
     VIEW3D_PT_meshforge_repair,
     VIEW3D_PT_meshforge_manifold,
     VIEW3D_PT_meshforge_dissolve,
+    VIEW3D_PT_meshforge_simplification,
     VIEW3D_PT_meshforge_topology,
     VIEW3D_PT_meshforge_normals,
     VIEW3D_PT_meshforge_object_data,

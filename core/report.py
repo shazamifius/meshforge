@@ -73,6 +73,28 @@ def format_report_as_text(report: Dict[str, Any]) -> str:
         lines.append(f"  {phase:<24} : {duration:.4f} s")
     lines.append("")
 
+    # Section Validation Géométrique (Phase C)
+    val = report.get("geometric_validation")
+    if val and val.get("valid"):
+        lines.append("-" * 60)
+        lines.append("5. VALIDATION GÉOMÉTRIQUE BIDIRECTIONNELLE (PHASE C)")
+        lines.append("-" * 60)
+        lines.append(f"  Méthode              : {val.get('sample_method')}")
+        lines.append(f"  Échantillons (Orig)  : {val.get('sample_count_orig')}")
+        lines.append(f"  Échantillons (Simp)  : {val.get('sample_count_simp')}")
+        lines.append(f"  Distance moyenne     : {val.get('distance_mean'):.6f} m")
+        lines.append(f"  Distance P95         : {val.get('distance_p95'):.6f} m")
+        lines.append(f"  Distance P99         : {val.get('distance_p99'):.6f} m")
+        lines.append(f"  Distance max observée: {val.get('distance_max_observed'):.6f} m ({val.get('distance_max_relative')*100:.3f}% de la bbox)")
+        lines.append(f"  Déviation normale moy: {val.get('normal_deviation_mean_deg'):.2f}° (P95: {val.get('normal_deviation_p95_deg'):.2f}°, Max: {val.get('normal_deviation_max_deg'):.2f}°)")
+        lines.append(f"  Écart silhouette (%) : {val.get('silhouette_deviation_pct')}")
+        if val.get('volume_delta_pct') is not None:
+            lines.append(f"  Variation de volume  : {val.get('volume_delta_pct'):.3f} % (Maillage fermé)")
+        lines.append(f"  Arêtes Sharp (Av/Ap) : {val.get('sharp_edges_before')} -> {val.get('sharp_edges_after')}")
+        lines.append(f"  Coutures UV (Av/Ap)  : {val.get('seams_before')} -> {val.get('seams_after')}")
+        lines.append(f"  Note d'approximation : {val.get('approximation_note')}")
+        lines.append("")
+
     if report.get("warnings"):
         lines.append("-" * 60)
         lines.append("AVERTISSEMENTS :")
@@ -112,6 +134,8 @@ def export_report_to_file(report: Dict[str, Any], filepath: str, format_type: st
             "issues_resolved": report.get("issues_resolved"),
             "phase_timings": report.get("phase_timings"),
             "applied_parameters": report.get("applied_parameters"),
+            "simplification_details": report.get("simplification_details"),
+            "geometric_validation": report.get("geometric_validation"),
             "warnings": report.get("warnings"),
             "errors": report.get("errors"),
             "logs": report.get("logs")

@@ -79,6 +79,26 @@ class MESHFORGE_OT_topology(bpy.types.Operator):
         return {'FINISHED'}
 
 
+from ..core.simplification import execute_simplification
+
+
+class MESHFORGE_OT_simplification(bpy.types.Operator):
+    """Exécute uniquement la simplification adaptative contrôlée"""
+    bl_idname = "meshforge.simplification"
+    bl_label = "Réduire le maillage"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'MESH'
+
+    def execute(self, context):
+        res = execute_simplification(context.active_object, context.scene.meshforge_settings)
+        msg = " | ".join(res.get("log", ["Simplification terminée."]))
+        self.report({'INFO'}, f"MeshForge Simplification : {msg}")
+        return {'FINISHED'}
+
+
 class MESHFORGE_OT_normals(bpy.types.Operator):
     """Exécute uniquement le recalcul et lissage des normales"""
     bl_idname = "meshforge.normals"

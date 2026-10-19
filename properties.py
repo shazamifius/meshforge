@@ -243,6 +243,67 @@ class MeshForgeSettings(bpy.types.PropertyGroup):
         default=True
     )
 
+    # --- Section 4 : Simplification intelligente (Phase C) ---
+    enable_simplification: BoolProperty(
+        name="Activer Simplification",
+        description="Moteur de réduction adaptative contrôlé par budget ou tolérance géométrique",
+        default=False
+    )
+    simplification_mode: EnumProperty(
+        name="Mode Réduction",
+        items=[
+            ('PERCENTAGE', "Pourcentage de réduction (%)", "Réduire d'un pourcentage cible (ex. 50%)"),
+            ('BUDGET_TRIANGLES', "Budget de triangles", "Atteindre un nombre cible de triangles de rendu"),
+            ('TOLERANCE_ONLY', "Tolérance maximale seule", "Réduction maximale sous une déviation géométrique maximale")
+        ],
+        default='PERCENTAGE'
+    )
+    simplification_percentage: FloatProperty(
+        name="Pourcentage cible",
+        description="Pourcentage de réduction du nombre initial de triangles",
+        default=50.0,
+        min=0.0,
+        max=99.9,
+        step=1.0,
+        precision=1
+    )
+    simplification_target_triangles: IntProperty(
+        name="Triangles cibles",
+        description="Nombre cible de triangles estimés après simplification",
+        default=1000,
+        min=4,
+        step=100
+    )
+    enable_simplification_tolerance: BoolProperty(
+        name="Plafonner par tolérance",
+        description="Arrête la simplification si la déviation de surface dépasse la tolérance",
+        default=False
+    )
+    simplification_max_tolerance: FloatProperty(
+        name="Tolérance max (m)",
+        description="Déviation géométrique maximale admissible en mètres",
+        default=0.005,
+        min=0.0,
+        step=0.001,
+        precision=5,
+        unit='LENGTH'
+    )
+    tolerance_relative: BoolProperty(
+        name="Tolérance relative",
+        description="Interprète la tolérance en proportion de la diagonale de la boîte englobante",
+        default=False
+    )
+    collapse_triangulate: BoolProperty(
+        name="Trianguler avant réduction",
+        description="Force la triangulation préalable (désactiver pour préserver les quads où possible)",
+        default=False
+    )
+    preserve_normals_angle: BoolProperty(
+        name="Préserver angles de normales",
+        description="Empêche les contractions d'arêtes à travers les arêtes d'ombrage marquées",
+        default=False
+    )
+
     # --- Section 3.4 : Topology ---
     enable_topology: BoolProperty(
         name="Activer Topology",
