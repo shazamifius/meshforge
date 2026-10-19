@@ -73,25 +73,54 @@ def format_report_as_text(report: Dict[str, Any]) -> str:
         lines.append(f"  {phase:<24} : {duration:.4f} s")
     lines.append("")
 
-    # Section Validation Géométrique (Phase C)
+    # Section Validation Géométrique (Phases C & C2)
     val = report.get("geometric_validation")
     if val and val.get("valid"):
         lines.append("-" * 60)
-        lines.append("5. VALIDATION GÉOMÉTRIQUE BIDIRECTIONNELLE (PHASE C)")
+        lines.append("5. VALIDATION GÉOMÉTRIQUE & TOPOLOGIQUE (PHASE C2)")
         lines.append("-" * 60)
         lines.append(f"  Méthode              : {val.get('sample_method')}")
         lines.append(f"  Échantillons (Orig)  : {val.get('sample_count_orig')}")
         lines.append(f"  Échantillons (Simp)  : {val.get('sample_count_simp')}")
-        lines.append(f"  Distance moyenne     : {val.get('distance_mean'):.6f} m")
-        lines.append(f"  Distance P95         : {val.get('distance_p95'):.6f} m")
-        lines.append(f"  Distance P99         : {val.get('distance_p99'):.6f} m")
-        lines.append(f"  Distance max observée: {val.get('distance_max_observed'):.6f} m ({val.get('distance_max_relative')*100:.3f}% de la bbox)")
+        lines.append(f"  Diagonale bbox locale: {val.get('bounding_box_diagonal', 0.0):.6f} m")
+
+        # Distances séparées
+        fwd = val.get("distance_forward", {})
+        bwd = val.get("distance_backward", {})
+        if fwd and bwd:
+            lines.append(f"  Distance Directe (Orig->Simp)  : Moy={fwd.get('mean', 0.0):.6f} m | P95={fwd.get('p95', 0.0):.6f} m | Max={fwd.get('max', 0.0):.6f} m")
+            lines.append(f"  Distance Inverse (Simp->Orig)  : Moy={bwd.get('mean', 0.0):.6f} m | P95={bwd.get('p95', 0.0):.6f} m | Max={bwd.get('max', 0.0):.6f} m")
+            lines.append(f"  Distance Hausdorff bidirect.   : {val.get('distance_hausdorff', 0.0):.6f} m")
+        else:
+            lines.append(f"  Distance moyenne     : {val.get('distance_mean'):.6f} m")
+            lines.append(f"  Distance P95         : {val.get('distance_p95'):.6f} m")
+            lines.append(f"  Distance P99         : {val.get('distance_p99'):.6f} m")
+
+        lines.append(f"  Distance max observée: {val.get('distance_max_observed'):.6f} m ({val.get('distance_max_relative', 0.0)*100:.3f}% de la bbox)")
         lines.append(f"  Déviation normale moy: {val.get('normal_deviation_mean_deg'):.2f}° (P95: {val.get('normal_deviation_p95_deg'):.2f}°, Max: {val.get('normal_deviation_max_deg'):.2f}°)")
-        lines.append(f"  Écart silhouette (%) : {val.get('silhouette_deviation_pct')}")
+
+        # Silhouette 2D détaillée
+        sm = val.get("silhouette_metrics", {})
+        if sm:
+            for plane in ['XY', 'XZ', 'YZ']:
+                p_data = sm.get(plane, {})
+                lines.append(
+                    f"  Silhouette {plane:<2} (IoU / Delta / Contour) : "
+                    f"IoU={p_data.get('iou', 0.0):.4f} (Div {p_data.get('divergence_pct', 0.0):.1f}%) | "
+                    f"Aire \u0394={p_data.get('area_delta_pct', 0.0):.2f}% | "
+                    f"Contour Dist Moy={p_data.get('contour_distance_mean_m', 0.0):.5f}m (Max {p_data.get('contour_distance_max_m', 0.0):.5f}m)"
+                )
+        else:
+            lines.append(f"  Écart silhouette (%) : {val.get('silhouette_deviation_pct')}")
+
         if val.get('volume_delta_pct') is not None:
-            lines.append(f"  Variation de volume  : {val.get('volume_delta_pct'):.3f} % (Maillage fermé)")
-        lines.append(f"  Arêtes Sharp (Av/Ap) : {val.get('sharp_edges_before')} -> {val.get('sharp_edges_after')}")
+            lines.append(f"  Variation de volume  : {val.get('volume_delta_pct'):.3f} % (Maillage fermé vérifié bilatéralement)")
+        else:
+            lines.append("  Variation de volume  : N/A (Surface ouverte ou non-manifold)")
+
+        lines.append(f"  Arêtes Sharp (Av/Ap) : {val.get('sharp_edges_before')} -> {val.get('sharp_edges_after')} (Note: fusion d'arêtes Decimate)")
         lines.append(f"  Coutures UV (Av/Ap)  : {val.get('seams_before')} -> {val.get('seams_after')}")
+        lines.append(f"  Matériaux (Av/Ap)    : {val.get('materials_before')} -> {val.get('materials_after')}")
         lines.append(f"  Note d'approximation : {val.get('approximation_note')}")
         lines.append("")
 

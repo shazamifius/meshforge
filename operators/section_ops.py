@@ -94,6 +94,10 @@ class MESHFORGE_OT_simplification(bpy.types.Operator):
 
     def execute(self, context):
         res = execute_simplification(context.active_object, context.scene.meshforge_settings)
+        if res.get("status") == "ERROR":
+            err_msg = " | ".join(res.get("log", ["Erreur lors de la simplification."]))
+            self.report({'ERROR'}, f"MeshForge Simplification : {err_msg}")
+            return {'CANCELLED'}
         msg = " | ".join(res.get("log", ["Simplification terminée."]))
         self.report({'INFO'}, f"MeshForge Simplification : {msg}")
         return {'FINISHED'}

@@ -15,12 +15,14 @@ if str(root_dir) not in sys.path:
 from tests.test_phase_a import TestMeshForgePhaseA
 from tests.test_phase_b import TestMeshForgePhaseB
 from tests.test_phase_c import TestMeshForgePhaseC
+from tests.test_phase_c2_quality import TestMeshForgePhaseC2Quality
 
 if __name__ == "__main__":
     suite = unittest.TestSuite()
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseA))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseB))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseC))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseC2Quality))
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     sys.exit(0 if result.wasSuccessful() else 1)
