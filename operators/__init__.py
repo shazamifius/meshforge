@@ -1,0 +1,39 @@
+"""MeshForge - Enregistrement de tous les opérateurs."""
+
+from __future__ import annotations
+import bpy
+
+from .optimize import MESHFORGE_OT_optimize
+from .analyze import MESHFORGE_OT_analyze
+from .section_ops import (
+    MESHFORGE_OT_repair,
+    MESHFORGE_OT_manifold,
+    MESHFORGE_OT_dissolve,
+    MESHFORGE_OT_topology,
+    MESHFORGE_OT_normals,
+    MESHFORGE_OT_object_data,
+)
+from .restore import MESHFORGE_OT_restore, MESHFORGE_OT_toggle_wireframe
+
+classes = (
+    MESHFORGE_OT_optimize,
+    MESHFORGE_OT_analyze,
+    MESHFORGE_OT_repair,
+    MESHFORGE_OT_manifold,
+    MESHFORGE_OT_dissolve,
+    MESHFORGE_OT_topology,
+    MESHFORGE_OT_normals,
+    MESHFORGE_OT_object_data,
+    MESHFORGE_OT_restore,
+    MESHFORGE_OT_toggle_wireframe,
+)
+
+
+def register_operators():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+
+
+def unregister_operators():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
