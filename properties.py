@@ -16,6 +16,51 @@ from bpy.props import (
 
 
 class MeshForgeSettings(bpy.types.PropertyGroup):
+    # --- Assistant intelligent de préparation d'assets (Phase D) ---
+    asset_target_mode: EnumProperty(
+        name="Objectif de l'Asset",
+        description="Définit l'objectif prioritaire de l'asset pour guider l'analyse et les corrections",
+        items=[
+            ('GAME_TRIANGLES', "Asset de jeu — Triangles", "Pour les décors, rochers et objets statiques : réduction de triangles, préservation de silhouette et d'UV"),
+            ('DEFORMABLE_QUADS', "Asset déformable — Quads", "Pour les personnages, vêtements et objets articulés : flux de boucles régulier et déformation optimale"),
+            ('HYBRID_CLEANUP', "Asset hybride — Diagnostic", "Pour les objets mécaniques et mixtes : diagnostic complet et nettoyage conservateur sans conversion forcée")
+        ],
+        default='HYBRID_CLEANUP'
+    )
+    validation_depth: EnumProperty(
+        name="Niveau de validation",
+        description="Choisit la profondeur d'analyse pour équilibrer vitesse et précision métrologique",
+        items=[
+            ('QUICK', "Rapide", "Vérifications immédiates peu coûteuses (invariants géométriques)"),
+            ('THOROUGH', "Approfondi", "Mesures géométriques complètes, silhouette 2D IoU et quantiles d'écart"),
+            ('PRE_EXPORT', "Avant export", "Validation stricte de conformité avant envoi vers le moteur cible")
+        ],
+        default='QUICK'
+    )
+    active_defect_filter: EnumProperty(
+        name="Filtrer les anomalies",
+        description="Filtre la liste interactive des défauts par catégorie sémantique",
+        items=[
+            ('ALL', "Toutes les anomalies", "Afficher tous les défauts détectés"),
+            ('ORANGE', "N-gones (Orange)", "Faces à plus de 4 côtés"),
+            ('BLUE', "Triangles suspects (Bleu)", "Triangles en zone déformable"),
+            ('RED', "Dégénérescences (Rouge)", "Faces nulles, arêtes minuscules, non-manifold"),
+            ('VIOLET', "Éléments isolés (Violet)", "Composantes disjointes et géométrie flottante")
+        ],
+        default='ALL'
+    )
+    active_defect_index: IntProperty(
+        name="Anomalie sélectionnée",
+        description="Index de l'anomalie active à examiner dans la liste",
+        default=0,
+        min=0
+    )
+    show_expert_mode: BoolProperty(
+        name="Mode Expert / Réglages techniques",
+        description="Déploie les panneaux de contrôle techniques avancés",
+        default=False
+    )
+
     # --- Workflow et sécurité non-destructive (Section 1 & 2) ---
     create_new_object: BoolProperty(
         name="Créer un nouvel objet",

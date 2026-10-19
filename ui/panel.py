@@ -5,6 +5,8 @@ Organise les contrôles en panneaux pliables ergonomiques et clairs.
 from __future__ import annotations
 import bpy
 
+from ..operators.topology_inspect import get_active_diagnosis
+
 
 class VIEW3D_PT_meshforge_base:
     """Classe de base pour tous les panneaux MeshForge."""
@@ -14,47 +16,166 @@ class VIEW3D_PT_meshforge_base:
 
 
 class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
-    """Panneau principal de contrôle MeshForge."""
+    """Panneau principal de l'assistant MeshForge (Phase D1)."""
     bl_idname = 'VIEW3D_PT_meshforge_main'
-    bl_label = 'MeshForge'
+    bl_label = 'MeshForge — Assistant 3D'
 
     def draw(self, context):
         layout = self.layout
         props = context.scene.meshforge_settings
         obj = context.active_object
 
-        # Avertissement si aucun objet maillage sélectionné
+        # ---------------------------------------------------------
+        # 1. OBJET SÉLECTIONNÉ & STATISTIQUES IMMÉDIATES
+        # ---------------------------------------------------------
+        box_obj = layout.box()
         if not obj or obj.type != 'MESH':
-            box = layout.box()
-            box.label(text="Sélectionnez un maillage (Mesh)", icon='INFO')
+            box_obj.label(text="Aucun maillage sélectionné", icon='INFO')
+            box_obj.label(text="Sélectionnez un objet 3D pour commencer.", icon='FORWARD')
             return
 
-        # 1. Bouton principal d'optimisation
-        col = layout.column(align=True)
-        col.scale_y = 1.4
-        btn = col.operator("meshforge.optimize", text="Optimiser le maillage", icon='MOD_DECIM')
+        mesh = obj.data
+        row_title = box_obj.row(align=True)
+        row_title.label(text=f"Objet : {obj.name}", icon='MESH_DATA')
+        if "_MF_Optimized" in obj.name:
+            row_title.label(text="[Optimisé]", icon='CHECKMARK')
 
-        # 2. Boutons d'action secondaire
-        row = layout.row(align=True)
-        row.operator("meshforge.analyze", text="Analyser seulement", icon='VIEWZOOM')
-        row.operator("meshforge.toggle_wireframe", text="Filaire", icon='SHADING_WIRE')
+        # Comptage immédiat exact
+        mesh.calc_loop_triangles()
+        real_tris = len(mesh.loop_triangles) if hasattr(mesh, "loop_triangles") else sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
 
-        # 3. Bouton Restaurer si un résultat existe
+        grid = box_obj.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
+        grid.label(text=f"Sommets : {len(mesh.vertices):,}")
+        grid.label(text=f"Arêtes : {len(mesh.edges):,}")
+        grid.label(text=f"Faces : {len(mesh.polygons):,}")
+        grid.label(text=f"Triangles réels : {real_tris:,}")
+
+        # ---------------------------------------------------------
+        # 2. CHOISIR SON OBJECTIF (LES 3 MODES D'ASSET)
+        # ---------------------------------------------------------
+        box_mode = layout.box()
+        box_mode.label(text="1. Choisir votre objectif :", icon='TARGET')
+        col_m = box_mode.column(align=True)
+        col_m.prop(props, "asset_target_mode", text="")
+
+        # Explication en français simple selon le mode choisi
+        mode = props.asset_target_mode
+        box_exp = box_mode.box()
+        if mode == 'GAME_TRIANGLES':
+            box_exp.label(text="Mode Jeu (Triangles) :", icon='SOLO_ON')
+            box_exp.label(text="• Priorité : Réduire le poids géométrique (LODs, décors, rochers).")
+            box_exp.label(text="• Préserve la silhouette, les UVs et les matériaux.")
+            box_exp.label(text="• Les triangles sont conservés et optimisés.")
+        elif mode == 'DEFORMABLE_QUADS':
+            box_exp.label(text="Mode Déformable (Quads) :", icon='OUTLINER_OB_ARMATURE')
+            box_exp.label(text="• Priorité : Fluidité de déformation pour l'animation et le rigging.")
+            box_exp.label(text="• Détecte les N-gones et triangles coupant les boucles d'arêtes.")
+            box_exp.label(text="• Vise une topologie propre pour personnages et vêtements.")
+        elif mode == 'HYBRID_CLEANUP':
+            box_exp.label(text="Mode Hybride (Diagnostic) :", icon='PREFERENCES')
+            box_exp.label(text="• Priorité : Objets mécaniques, assemblages et maillages mixtes.")
+            box_exp.label(text="• Nettoyage conservateur sans forcer quads ou triangulation.")
+            box_exp.label(text="• Idéal pour préparer un asset sans objectif tranché.")
+
+        # ---------------------------------------------------------
+        # 3. ACTIONS PRINCIPALES
+        # ---------------------------------------------------------
+        layout.label(text="2. Actions recommandées :", icon='PLAY')
+
+        # Bouton principal Nettoyage / Optimisation
+        col_act = layout.column(align=True)
+        col_act.scale_y = 1.3
+        col_act.operator("meshforge.optimize", text="Nettoyer rapidement le modèle", icon='CHECKMARK')
+
+        row_diag = layout.row(align=True)
+        row_diag.scale_y = 1.1
+        row_diag.operator("meshforge.analyze_topology", text="Analyser la topologie", icon='VIEWZOOM')
+        row_diag.operator("meshforge.simplification", text="Réduire les triangles", icon='MOD_DECIM')
+
+        row_tools = layout.row(align=True)
+        row_tools.operator("meshforge.analyze", text="Rapport global", icon='TEXT')
+        row_tools.operator("meshforge.toggle_wireframe", text="Filaire", icon='SHADING_WIRE')
+
+        # Bouton Restaurer si objet optimisé
         if "_MF_Optimized" in obj.name:
             box_res = layout.box()
-            box_res.label(text="Objet résultat actif", icon='CHECKMARK')
+            box_res.label(text="Objet résultat actif :", icon='INFO')
             box_res.operator("meshforge.restore", text="Restaurer l'original", icon='RECOVER_LAST')
 
-        # 4. Paramètres de Workflow et sécurité
-        box_flow = layout.box()
-        box_flow.label(text="Sécurité & Préservation :", icon='SHIELD')
-        box_flow.prop(props, "create_new_object")
-        if props.create_new_object:
-            box_flow.prop(props, "hide_original")
-        else:
-            row_warn = box_flow.row()
-            row_warn.alert = True
-            row_warn.prop(props, "destructive_mode", text="Mode destructif direct !")
+        # ---------------------------------------------------------
+        # 4. DIAGNOSTIC INTERACTIF & CODE COULEUR DES ANOMALIES
+        # ---------------------------------------------------------
+        diag = get_active_diagnosis(obj.name)
+        if diag and diag.get("valid"):
+            defects = diag.get("defects", [])
+            summary = diag.get("summary", {})
+
+            box_diag = layout.box()
+            row_dh = box_diag.row()
+            row_dh.label(text="Diagnostic topologique :", icon='COLOR')
+            row_dh.operator("meshforge.clear_defect_view", text="", icon='PANEL_CLOSE')
+
+            # Pastilles sémantiques colorées
+            col_badges = box_diag.column(align=True)
+            r1 = col_badges.row(align=True)
+            r1.label(text=f"● N-gones : {summary.get('ngons', 0)}", icon='RADIOBUT_ON') # Orange
+            r1.label(text=f"● Triangles : {summary.get('suspect_triangles', 0)}", icon='RADIOBUT_OFF') # Bleu
+            r2 = col_badges.row(align=True)
+            r2.label(text=f"● Dégénérescences : {summary.get('degeneracies', 0)}", icon='ERROR') # Rouge
+            r2.label(text=f"● Éléments isolés : {summary.get('isolated', 0)}", icon='DOT') # Violet
+
+            if defects:
+                box_diag.separator()
+                box_diag.prop(props, "active_defect_filter", text="Filtre")
+
+                # Filtrer les anomalies selon le filtre actif
+                f_filter = props.active_defect_filter
+                visible_defects = [
+                    (i, d) for i, d in enumerate(defects)
+                    if f_filter == 'ALL' or d.get("category") == f_filter
+                ]
+
+                box_diag.label(text=f"{len(visible_defects)} anomalie(s) répertoriée(s) :")
+
+                # Affichage des 5 premières anomalies visibles avec zoom
+                for idx_orig, defect in visible_defects[:5]:
+                    b_item = box_diag.box()
+                    r_item = b_item.row(align=True)
+                    r_item.label(text=defect.get("name", "Anomalie"), icon='RIGHTARROW')
+                    op_zoom = r_item.operator("meshforge.focus_defect", text="Zoomer", icon='ZOOM_SELECTED')
+                    op_zoom.defect_index = idx_orig
+
+                    col_exp = b_item.column(align=True)
+                    col_exp.scale_y = 0.8
+                    col_exp.label(text=defect.get("explanation", ""))
+                    col_exp.label(text=f"Action conseillée : {defect.get('recommendation', '')}")
+
+                if len(visible_defects) > 5:
+                    box_diag.label(text=f"... et {len(visible_defects) - 5} autre(s) anomalie(s).")
+            else:
+                box_diag.label(text="Aucune anomalie topologique critique détectée !", icon='CHECKMARK')
+
+        # ---------------------------------------------------------
+        # 5. MODE EXPERT / RÉGLAGES AVANCÉS REPLIABLE
+        # ---------------------------------------------------------
+        box_exp_toggle = layout.box()
+        box_exp_toggle.prop(
+            props,
+            "show_expert_mode",
+            text="Mode Expert / Réglages avancés",
+            icon='TRIA_DOWN' if props.show_expert_mode else 'TRIA_RIGHT'
+        )
+
+        if props.show_expert_mode:
+            box_flow = box_exp_toggle.box()
+            box_flow.label(text="Sécurité & Préservation :", icon='SHIELD')
+            box_flow.prop(props, "create_new_object")
+            if props.create_new_object:
+                box_flow.prop(props, "hide_original")
+            else:
+                row_warn = box_flow.row()
+                row_warn.alert = True
+                row_warn.prop(props, "destructive_mode", text="Mode destructif direct !")
 
 
 class VIEW3D_PT_meshforge_repair(VIEW3D_PT_meshforge_base, bpy.types.Panel):

@@ -3,6 +3,8 @@
 from __future__ import annotations
 import bpy
 from ..core.mesh_stats import get_mesh_statistics
+from ..core.topology_diagnosis import diagnose_topology
+from .topology_inspect import _ACTIVE_DIAGNOSIS_CACHE
 
 
 class MESHFORGE_OT_analyze(bpy.types.Operator):
@@ -23,6 +25,10 @@ class MESHFORGE_OT_analyze(bpy.types.Operator):
         if not stats.get("valid", False):
             self.report({'ERROR'}, stats.get("error", "Erreur lors de l'analyse."))
             return {'CANCELLED'}
+
+        # Diagnostic topologique non-destructif pour l'assistant
+        diag = diagnose_topology(obj, mode=props.asset_target_mode)
+        _ACTIVE_DIAGNOSIS_CACHE[obj.name] = diag
 
         # Mise à jour des propriétés d'affichage
         props.last_status = "Analysé"

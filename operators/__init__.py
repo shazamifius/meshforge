@@ -16,10 +16,18 @@ from .section_ops import (
 )
 from .restore import MESHFORGE_OT_restore, MESHFORGE_OT_toggle_wireframe
 from .report_export import MESHFORGE_OT_export_report
+from .topology_inspect import (
+    MESHFORGE_OT_analyze_topology,
+    MESHFORGE_OT_focus_defect,
+    MESHFORGE_OT_clear_defect_view
+)
 
 classes = (
     MESHFORGE_OT_optimize,
     MESHFORGE_OT_analyze,
+    MESHFORGE_OT_analyze_topology,
+    MESHFORGE_OT_focus_defect,
+    MESHFORGE_OT_clear_defect_view,
     MESHFORGE_OT_repair,
     MESHFORGE_OT_manifold,
     MESHFORGE_OT_dissolve,

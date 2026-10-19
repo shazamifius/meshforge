@@ -11,6 +11,8 @@ from .simplification import execute_simplification
 from .validation import evaluate_geometric_deviation, sample_mesh_surface
 from .pipeline import run_meshforge_pipeline, duplicate_object_non_destructive
 from .report import format_report_as_text, export_report_to_file
+from .topology_diagnosis import diagnose_topology
+from .visualizer import select_defect, zoom_to_defect, apply_color_inspection, clear_inspection_view
 
 __all__ = [
     "get_mesh_statistics",
@@ -27,4 +29,9 @@ __all__ = [
     "duplicate_object_non_destructive",
     "format_report_as_text",
     "export_report_to_file",
+    "diagnose_topology",
+    "select_defect",
+    "zoom_to_defect",
+    "apply_color_inspection",
+    "clear_inspection_view",
 ]
