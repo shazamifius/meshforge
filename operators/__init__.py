@@ -14,6 +14,7 @@ from .section_ops import (
     MESHFORGE_OT_object_data,
 )
 from .restore import MESHFORGE_OT_restore, MESHFORGE_OT_toggle_wireframe
+from .report_export import MESHFORGE_OT_export_report
 
 classes = (
     MESHFORGE_OT_optimize,
@@ -26,6 +27,7 @@ classes = (
     MESHFORGE_OT_object_data,
     MESHFORGE_OT_restore,
     MESHFORGE_OT_toggle_wireframe,
+    MESHFORGE_OT_export_report,
 )
 
 

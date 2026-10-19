@@ -38,6 +38,11 @@ class MESHFORGE_OT_optimize(bpy.types.Operator):
         # Exécution du pipeline
         report = run_meshforge_pipeline(obj, props)
 
+        # Mémorisation du rapport complet pour l'export JSON / Texte
+        from .report_export import LAST_PIPELINE_REPORT
+        import sys
+        sys.modules['meshforge.operators.report_export'].LAST_PIPELINE_REPORT = report
+
         # Enregistrement des résultats pour affichage UI
         props.last_status = "Succès" if report["success"] else "Échec"
         props.last_duration = report.get("total_duration", 0.0)

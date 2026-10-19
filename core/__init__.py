@@ -8,6 +8,7 @@ from .topology import execute_topology
 from .normals import execute_normals
 from .object_data import execute_object_data
 from .pipeline import run_meshforge_pipeline, duplicate_object_non_destructive
+from .report import format_report_as_text, export_report_to_file
 
 __all__ = [
     "get_mesh_statistics",
@@ -19,4 +20,6 @@ __all__ = [
     "execute_object_data",
     "run_meshforge_pipeline",
     "duplicate_object_non_destructive",
+    "format_report_as_text",
+    "export_report_to_file",
 ]

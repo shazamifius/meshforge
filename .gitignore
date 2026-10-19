@@ -5,3 +5,4 @@ __pycache__/
 *.blend
 *.blend1
 .pytest_cache/
+tests/test_output_report.*

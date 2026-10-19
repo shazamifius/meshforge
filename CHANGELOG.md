@@ -2,6 +2,16 @@
 
 Toutes les modifications notables de ce projet seront consignées dans ce document.
 
+## [0.2.0] - Phase B : Sécurité, diagnostics renforcés et traçabilité
+
+### Ajouté
+- Diagnostic préalable enrichi (`core/mesh_stats.py`) : détection des composantes connexes disjointes (islands), comptage des ouvertures/trous (`boundary_loops`), détection non destructive des doublons géométriques via KDTree, évaluation des risques pour surfaces ouvertes et maillages non-manifold.
+- Module de rapport et d'exportation (`core/report.py`) : formats JSON et texte, distinction explicite entre les problèmes détectés et les problèmes résolus, enregistrement des paramètres appliqués et des chronométrages par phase.
+- Opérateur d'exportation de rapport (`operators/report_export.py`) et boutons d'export intégrés à l'interface (`ui/panel.py`).
+- Mécanisme de rollback garanti en cas d'erreur dans le pipeline (`core/pipeline.py`) : suppression immédiate de l'objet dupliqué échoué, réactivation de l'original, et restauration par sauvegarde mémoire en mode destructif.
+- Optimisation des performances du nettoyage de matériaux (`core/object_data.py`) via l'opérateur C natif `material_slot_remove_unused()`.
+- Suite de tests Phase B (`tests/test_phase_b.py`) couvrant surfaces ouvertes/tissus, objets watertight, topologie tris vs quads, îlots disjoints, préservation des attributs (UV, matériaux, VGs, Sharp), résistance aux erreurs et benchmark de scalabilité sur 1,587 million de triangles.
+
 ## [0.1.0] - Phase A : Prototype d'interface et d'exécution modulaire
 
 ### Ajouté

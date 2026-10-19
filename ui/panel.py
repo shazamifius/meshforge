@@ -328,6 +328,13 @@ class VIEW3D_PT_meshforge_report(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         if props.last_reduction > 0:
             box.label(text=f"Réduction globale : {props.last_reduction:.1f} %", icon='SOLO_ON')
 
+        # Boutons d'exportation de rapport (Phase B)
+        row_exp = box.row(align=True)
+        op_json = row_exp.operator("meshforge.export_report", text="Exporter (JSON)", icon='DOCUMENTS')
+        op_json.format_type = 'JSON'
+        op_txt = row_exp.operator("meshforge.export_report", text="Exporter (Texte)", icon='TEXT')
+        op_txt.format_type = 'TXT'
+
         if props.last_logs:
             box_log = layout.box()
             box_log.label(text="Détails & Événements :", icon='TEXT')
