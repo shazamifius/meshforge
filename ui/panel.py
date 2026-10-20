@@ -1,11 +1,19 @@
 """MeshForge - Interface utilisateur dans le 3D Viewport (Sidebar N-Panel).
-Organise les contrôles en panneaux pliables ergonomiques et clairs.
+Organise les contrôles selon le parcours guidé utilisateur (Phases UX1 à UX5) :
+1. Objet sélectionné & statistiques directes
+2. Choix de l'objectif parmi les 5 profils prédéfinis
+3. Diagnostic topologique & santé globale
+4. Actions prioritaires recommandées avec badges de risque
+5. Tableau détaillé des constats avec filtres et cadrage (Zoomer)
+6. Réduction de polygones optionnelle clairement délimitée
+7. Mode Expert repliable déverrouillant les réglages techniques
 """
 
 from __future__ import annotations
 import bpy
 
 from ..operators.topology_inspect import get_active_diagnosis
+from ..core.structured_diagnosis import PROFILES, PROFILE_ALIAS, CATEGORIES
 
 
 class VIEW3D_PT_meshforge_base:
@@ -16,7 +24,7 @@ class VIEW3D_PT_meshforge_base:
 
 
 class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
-    """Panneau principal de l'assistant MeshForge (Phase D1)."""
+    """Panneau principal de l'assistant MeshForge (Phases UX1 - UX5)."""
     bl_idname = 'VIEW3D_PT_meshforge_main'
     bl_label = 'MeshForge — Assistant 3D'
 
@@ -40,7 +48,7 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         if "_MF_Optimized" in obj.name:
             row_title.label(text="[Optimisé]", icon='CHECKMARK')
 
-        # Comptage immédiat exact
+        # Comptage immédiat exact sans bmesh lourd
         mesh.calc_loop_triangles()
         real_tris = len(mesh.loop_triangles) if hasattr(mesh, "loop_triangles") else sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
 
@@ -50,150 +58,211 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         grid.label(text=f"Faces : {len(mesh.polygons):,}")
         grid.label(text=f"Triangles réels : {real_tris:,}")
 
-        # ---------------------------------------------------------
-        # 2. CHOISIR SON OBJECTIF (LES 3 MODES D'ASSET)
-        # ---------------------------------------------------------
-        box_mode = layout.box()
-        box_mode.label(text="1. Choisir votre objectif :", icon='TRACKING')
-        col_m = box_mode.column(align=True)
-        col_m.prop(props, "asset_target_mode", text="")
-
-        # Explication en français simple selon le mode choisi
-        mode = props.asset_target_mode
-        box_exp = box_mode.box()
-        if mode == 'GAME_TRIANGLES':
-            box_exp.label(text="Mode Jeu (Triangles) :", icon='SOLO_ON')
-            box_exp.label(text="• Priorité : Réduire le poids géométrique (LODs, décors, rochers).")
-            box_exp.label(text="• Préserve la silhouette, les UVs et les matériaux.")
-            box_exp.label(text="• Les triangles sont conservés et optimisés.")
-        elif mode == 'DEFORMABLE_QUADS':
-            box_exp.label(text="Mode Déformable (Quads) :", icon='OUTLINER_OB_ARMATURE')
-            box_exp.label(text="• Priorité : Fluidité de déformation pour l'animation et le rigging.")
-            box_exp.label(text="• Détecte les N-gones et triangles coupant les boucles d'arêtes.")
-            box_exp.label(text="• Vise une topologie propre pour personnages et vêtements.")
-        elif mode == 'HYBRID_CLEANUP':
-            box_exp.label(text="Mode Hybride (Diagnostic) :", icon='PREFERENCES')
-            box_exp.label(text="• Priorité : Objets mécaniques, assemblages et maillages mixtes.")
-            box_exp.label(text="• Nettoyage conservateur sans forcer quads ou triangulation.")
-            box_exp.label(text="• Idéal pour préparer un asset sans objectif tranché.")
-
-        # ---------------------------------------------------------
-        # 3. DIAGNOSTIC TOPOLOGIQUE (ACTION PRINCIPALE)
-        # ---------------------------------------------------------
-        box_step2 = layout.box()
-        box_step2.label(text="2. Diagnostic du maillage :", icon='VIEWZOOM')
-
-        col_diag_btn = box_step2.column(align=True)
-        col_diag_btn.scale_y = 1.3
-        col_diag_btn.operator("meshforge.analyze_topology", text="Diagnostiquer la topologie", icon='COLOR')
-
-        row_tools = box_step2.row(align=True)
-        row_tools.operator("meshforge.toggle_wireframe", text="Afficher le filaire", icon='SHADING_WIRE')
-        row_tools.operator("meshforge.analyze", text="Rapport métrique", icon='TEXT')
-
-        # Bouton Restaurer si objet optimisé
+        # Bouton Restaurer si objet optimisé actif
         if "_MF_Optimized" in obj.name:
             box_res = layout.box()
             box_res.label(text="Objet résultat actif :", icon='INFO')
             box_res.operator("meshforge.restore", text="Restaurer l'original", icon='RECOVER_LAST')
 
         # ---------------------------------------------------------
-        # 4. RÉSULTATS DU DIAGNOSTIC & ACTIONS CIBLÉES
+        # 2. ÉTAPE 1 : CHOISIR VOTRE OBJECTIF (LES 5 PROFILS)
+        # ---------------------------------------------------------
+        box_mode = layout.box()
+        box_mode.label(text="1. Choisir votre objectif :", icon='TRACKING')
+        col_m = box_mode.column(align=True)
+        col_m.prop(props, "asset_target_mode", text="")
+
+        # Explication concise du profil actif
+        mode = props.asset_target_mode
+        resolved_profile = PROFILE_ALIAS.get(mode, mode)
+        p_info = PROFILES.get(resolved_profile, PROFILES.get("GENERAL", {}))
+
+        box_exp = box_mode.box()
+        col_exp = box_exp.column(align=True)
+        col_exp.scale_y = 0.85
+        col_exp.label(text=f"{p_info.get('name', 'Profil')} :", icon=p_info.get('icon', 'HELP'))
+        col_exp.label(text=p_info.get('summary', ''))
+
+        # ---------------------------------------------------------
+        # 3. ÉTAPE 2 : ANALYSER LE MAILLAGE (ACTION CENTRALE)
+        # ---------------------------------------------------------
+        box_step2 = layout.box()
+        box_step2.label(text="2. Diagnostic du maillage :", icon='VIEWZOOM')
+
+        col_diag_btn = box_step2.column(align=True)
+        col_diag_btn.scale_y = 1.3
+        col_diag_btn.operator("meshforge.analyze_topology", text="Analyser le maillage", icon='VIEWZOOM')
+
+        row_tools = box_step2.row(align=True)
+        row_tools.operator("meshforge.toggle_wireframe", text="Afficher le filaire", icon='SHADING_WIRE')
+        row_tools.operator("meshforge.clear_defect_view", text="Effacer l'inspection", icon='PANEL_CLOSE')
+
+        # ---------------------------------------------------------
+        # 4. ÉTAPE 3 : RÉSULTATS & SANTÉ GLOBALE
         # ---------------------------------------------------------
         diag = get_active_diagnosis(obj.name)
         if diag and diag.get("valid"):
-            defects = diag.get("defects", [])
-            summary = diag.get("summary", {})
+            structured = diag.get("structured", {})
+            findings = diag.get("findings", [])
+            health = structured.get("health", {})
+            total_defects = health.get("defects_count", 0)
+            total_risks = health.get("risks_count", 0)
+            total_obs = health.get("observations_count", 0)
 
-            box_diag = layout.box()
-            row_dh = box_diag.row()
-            row_dh.label(text="Résultats du diagnostic :", icon='COLOR')
-            row_dh.operator("meshforge.clear_defect_view", text="", icon='PANEL_CLOSE')
-
-            # Pastilles sémantiques colorées
-            col_badges = box_diag.column(align=True)
-            r1 = col_badges.row(align=True)
-            r1.label(text=f"● N-gones : {summary.get('ngons', 0)}", icon='RADIOBUT_ON') # Orange
-            r1.label(text=f"● Triangles : {summary.get('suspect_triangles', 0)}", icon='RADIOBUT_OFF') # Bleu
-            r2 = col_badges.row(align=True)
-            r2.label(text=f"● Dégénérescences : {summary.get('degeneracies', 0)}", icon='ERROR') # Rouge
-            r2.label(text=f"● Éléments isolés : {summary.get('isolated', 0)}", icon='DOT') # Violet
-
-            # Proposition d'action ciblée conservatrice (Phase D2.1)
-            can_clean = (summary.get('degeneracies', 0) > 0 or summary.get('isolated', 0) > 0)
-            if can_clean:
-                box_act = box_diag.box()
-                r_act_title = box_act.row()
-                r_act_title.label(text="Action recommandée :", icon='TOOL_SETTINGS')
-                r_act_title.label(text="[Risque Faible]", icon='CHECKMARK')
-
-                col_clean = box_act.column(align=True)
-                col_clean.scale_y = 1.2
-                col_clean.operator("meshforge.conservative_clean", text="Nettoyage conservateur sûr (sans décimation)", icon='BRUSH_DATA')
-
-                box_info = box_act.box()
-                col_info = box_info.column(align=True)
-                col_info.scale_y = 0.8
-                col_info.label(text="• Supprime uniquement orphelins, arêtes sans face et faces nulles.")
-                col_info.label(text="• Fusionne les doublons en protégeant les coutures UV.")
-                col_info.label(text="• Aucune décimation de surface : géométrie utile 100% préservée.")
-
-            # Action recommandée pour N-gones (Phase D2.2)
-            has_ngons = summary.get('ngons', 0) > 0
-            if has_ngons:
-                box_ngon = box_diag.box()
-                r_ngon_title = box_ngon.row()
-                r_ngon_title.label(text="Action recommandée N-gones :", icon='MESH_DATA')
-                r_ngon_title.label(text="[Risque Contrôlé]", icon='INFO')
-
-                col_cut = box_ngon.column(align=True)
-                col_cut.scale_y = 1.2
-                col_cut.operator("meshforge.cut_ngons", text=f"Découper les N-gones ({summary.get('ngons', 0)})", icon='MOD_TRIANGULATE')
-
-                box_ngon_info = box_ngon.box()
-                col_ngon_info = box_ngon_info.column(align=True)
-                col_ngon_info.scale_y = 0.8
-                col_ngon_info.label(text="• Triangulation Beauty équilibrée pour polygones convexes.")
-                col_ngon_info.label(text="• Ear-clipping orienté pour polygones concaves.")
-                col_ngon_info.label(text="• Cas ambigus/auto-intersectants isolés pour découpe manuelle.")
-                col_ngon_info.label(text="• Préservation intégrale UVs, matériaux et rollback automatique.")
-
-            if defects:
-                box_diag.separator()
-                box_diag.prop(props, "active_defect_filter", text="Filtre")
-
-                # Filtrer les anomalies selon le filtre actif
-                f_filter = props.active_defect_filter
-                visible_defects = [
-                    (i, d) for i, d in enumerate(defects)
-                    if f_filter == 'ALL' or d.get("category") == f_filter
-                ]
-
-                box_diag.label(text=f"{len(visible_defects)} anomalie(s) répertoriée(s) :")
-
-                # Affichage des 5 premières anomalies visibles avec zoom
-                for idx_orig, defect in visible_defects[:5]:
-                    b_item = box_diag.box()
-                    r_item = b_item.row(align=True)
-                    r_item.label(text=defect.get("name", "Anomalie"), icon='RIGHTARROW')
-                    op_zoom = r_item.operator("meshforge.focus_defect", text="Zoomer", icon='ZOOM_SELECTED')
-                    op_zoom.defect_index = idx_orig
-
-                    col_exp = b_item.column(align=True)
-                    col_exp.scale_y = 0.8
-                    col_exp.label(text=defect.get("explanation", ""))
-                    col_exp.label(text=f"Action conseillée : {defect.get('recommendation', '')}")
-
-                if len(visible_defects) > 5:
-                    box_diag.label(text=f"... et {len(visible_defects) - 5} autre(s) anomalie(s).")
+            box_health = layout.box()
+            row_hh = box_health.row()
+            if health.get("status") == "HEALTHY":
+                row_hh.label(text="Santé : Maillage sain pour cet objectif", icon='CHECKMARK')
+            elif health.get("status") == "CRITICAL":
+                row_hh.alert = True
+                row_hh.label(text=f"Santé : {total_defects} anomalie(s) critique(s)", icon='ERROR')
             else:
-                box_diag.label(text="Aucune anomalie topologique critique détectée !", icon='CHECKMARK')
+                row_hh.label(text=f"Santé : {total_risks} point(s) de vigilance", icon='INFO')
+
+            # Pastilles de comptage
+            row_counts = box_health.row(align=True)
+            r_def = row_counts.row(align=True)
+            if total_defects > 0:
+                r_def.alert = True
+            r_def.label(text=f"Défauts : {total_defects}", icon='CANCEL')
+            row_counts.label(text=f"Risques : {total_risks}", icon='HELP')
+            row_counts.label(text=f"Observations : {total_obs}", icon='INFO')
+
+            # ---------------------------------------------------------
+            # 5. ÉTAPE 4 : ACTIONS PRIORITAIRES RECOMMANDÉES (MAX 2-3)
+            # ---------------------------------------------------------
+            facts = diag.get("facts", {})
+
+            has_degeneracies = (
+                facts.get("zero_area_faces_count", 0) > 0 or
+                facts.get("degenerate_edges_count", 0) > 0 or
+                facts.get("isolated_verts_count", 0) > 0 or
+                facts.get("loose_edges_count", 0) > 0
+            )
+            has_ngons = (facts.get("ngons_count", 0) > 0)
+
+            box_acts = layout.box()
+            box_acts.label(text="3. Actions recommandées :", icon='TOOL_SETTINGS')
+
+            shown_actions = 0
+
+            # Action 1: Nettoyage conservateur sûr
+            if has_degeneracies:
+                shown_actions += 1
+                b_act1 = box_acts.box()
+                r1 = b_act1.row()
+                r1.label(text="Nettoyage conservateur sûr", icon='BRUSH_DATA')
+                r1.label(text="[Risque Faible]", icon='CHECKMARK')
+
+                col_b1 = b_act1.column(align=True)
+                col_b1.scale_y = 1.2
+                col_b1.operator("meshforge.conservative_clean", text="Nettoyer les dégénérescences (sans décimer)", icon='BRUSH_DATA')
+
+                c_info1 = b_act1.column(align=True)
+                c_info1.scale_y = 0.75
+                c_info1.label(text="• Supprime faces nulles, arêtes sans face et éléments orphelins.")
+                c_info1.label(text="• Fusionne les doublons en protégeant les coutures UV.")
+                c_info1.label(text="• 100% sans décimation : géométrie utile préservée.")
+
+            # Action 2: Découpe des N-gones (selon profil)
+            if has_ngons and resolved_profile in ("GAME_ASSET", "DEFORMABLE_CHAR", "GENERAL"):
+                shown_actions += 1
+                b_act2 = box_acts.box()
+                r2 = b_act2.row()
+                r2.label(text="Découper les N-gones", icon='MOD_TRIANGULATE')
+                r2.label(text="[Risque Contrôlé]", icon='INFO')
+
+                col_b2 = b_act2.column(align=True)
+                col_b2.scale_y = 1.2
+                col_b2.operator("meshforge.cut_ngons", text=f"Découper les {facts.get('ngons_count', 0)} N-gones", icon='MOD_TRIANGULATE')
+
+                c_info2 = b_act2.column(align=True)
+                c_info2.scale_y = 0.75
+                c_info2.label(text="• Ear-clipping et Beauty triangulation avec préservation des UVs.")
+                c_info2.label(text="• Rollback automatique en cas d'altération.")
+
+            if shown_actions == 0:
+                b_ok = box_acts.box()
+                b_ok.label(text="Aucune action corrective urgente requise.", icon='CHECKMARK')
+                b_ok.label(text="La géométrie respecte les critères du profil actif.")
+
+            # ---------------------------------------------------------
+            # 6. ÉTAPE 5 : TABLEAU DÉTAILLÉ DES CONSTATS (REPLIABLE)
+            # ---------------------------------------------------------
+            box_table = layout.box()
+            r_t_head = box_table.row(align=True)
+            r_t_head.prop(
+                props,
+                "show_findings_table",
+                text=f"Tableau détaillé ({len(findings)} constats)",
+                icon='TRIA_DOWN' if props.show_findings_table else 'TRIA_RIGHT'
+            )
+
+            if props.show_findings_table and findings:
+                # Filtres
+                col_filters = box_table.column(align=True)
+                col_filters.prop(props, "active_category_filter", text="Catégorie")
+                col_filters.prop(props, "active_severity_filter", text="Sévérité")
+
+                cat_f = props.active_category_filter
+                sev_f = props.active_severity_filter
+
+                filtered_findings = []
+                for f in findings:
+                    f_cat = getattr(f, "category", None) or (f.get("category") if isinstance(f, dict) else "")
+                    f_sev = getattr(f, "severity", None) or (f.get("severity") if isinstance(f, dict) else "")
+                    if cat_f != 'ALL' and f_cat != cat_f:
+                        continue
+                    if sev_f != 'ALL' and f_sev != sev_f:
+                        continue
+                    filtered_findings.append(f)
+
+                box_table.label(text=f"{len(filtered_findings)} constat(s) affiché(s) :", icon='FILTER')
+
+                # Affichage des constats filtrés (limité à 8 pour clarté)
+                for f in filtered_findings[:8]:
+                    f_id = getattr(f, "id", None) or (f.get("id") if isinstance(f, dict) else "")
+                    f_name = getattr(f, "name", None) or (f.get("name") if isinstance(f, dict) else "Constat")
+                    f_sev = getattr(f, "severity", None) or (f.get("severity") if isinstance(f, dict) else "OBSERVATION")
+                    f_exp = getattr(f, "explanation", None) or (f.get("explanation") if isinstance(f, dict) else "")
+                    f_conseq = getattr(f, "consequence", None) or (f.get("consequence") if isinstance(f, dict) else "")
+                    f_rec = getattr(f, "recommendation", None) or (f.get("recommendation") if isinstance(f, dict) else "")
+                    f_indices = getattr(f, "indices", None) or (f.get("indices") if isinstance(f, dict) else [])
+
+                    b_find = box_table.box()
+                    r_f_top = b_find.row(align=True)
+
+                    if f_sev == 'DEFECT':
+                        r_f_top.alert = True
+                        r_f_top.label(text="[DÉFAUT]", icon='CANCEL')
+                    elif f_sev == 'RISK':
+                        r_f_top.label(text="[RISQUE]", icon='HELP')
+                    else:
+                        r_f_top.label(text="[INFO]", icon='INFO')
+
+                    r_f_top.label(text=f_name)
+
+                    if f_indices:
+                        op_z = r_f_top.operator("meshforge.focus_defect", text="Zoomer", icon='ZOOM_SELECTED')
+                        op_z.finding_id = f_id
+
+                    c_f_det = b_find.column(align=True)
+                    c_f_det.scale_y = 0.75
+                    if f_exp:
+                        c_f_det.label(text=f_exp)
+                    if f_conseq:
+                        c_f_det.label(text=f"Impact : {f_conseq}")
+                    if f_rec:
+                        c_f_det.label(text=f"Conseil : {f_rec}")
+
+                if len(filtered_findings) > 8:
+                    box_table.label(text=f"... et {len(filtered_findings) - 8} autre(s) constat(s).")
 
         # ---------------------------------------------------------
-        # 5. RÉDUCTION DE TRIANGLES / DÉCIMATION (OPTIONNEL)
+        # 7. ÉTAPE 6 : RÉDUCTION DE POLYGONES / DÉCIMATION (OPTIONNEL)
         # ---------------------------------------------------------
         box_sim = layout.box()
-        box_sim.label(text="3. Réduction de polygones (Optionnel) :", icon='MOD_DECIM')
+        box_sim.label(text="4. Réduction de polygones (Optionnel) :", icon='MOD_DECIM')
 
         col_s = box_sim.column(align=True)
         col_s.prop(props, "simplification_percentage", text="Pourcentage cible (%)", slider=True)
@@ -203,12 +272,12 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         col_s_btn.operator("meshforge.simplification", text="Réduire les triangles (Décimateur natif)", icon='MOD_DECIM')
 
         col_s_warn = box_sim.column(align=True)
-        col_s_warn.scale_y = 0.8
+        col_s_warn.scale_y = 0.75
         col_s_warn.label(text="⚠️ Moteur natif Decimate : adapté aux décors rigides.", icon='ERROR')
         col_s_warn.label(text="Sur surfaces sculptées/courbées, risque d'artefacts d'ombrage noirs.")
 
         # ---------------------------------------------------------
-        # 6. MODE EXPERT / RÉGLAGES AVANCÉS REPLIABLE
+        # 8. ÉTAPE 7 : MODE EXPERT REPLIABLE
         # ---------------------------------------------------------
         box_exp_toggle = layout.box()
         box_exp_toggle.prop(
@@ -235,11 +304,16 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
 
 class VIEW3D_PT_meshforge_repair(VIEW3D_PT_meshforge_base, bpy.types.Panel):
-    """Section 3.1 - Repair"""
+    """Section 3.1 - Repair (Mode Expert)"""
     bl_idname = 'VIEW3D_PT_meshforge_repair'
     bl_label = '1. Réparation (Repair)'
     bl_parent_id = 'VIEW3D_PT_meshforge_main'
     bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        props = getattr(context.scene, "meshforge_settings", None)
+        return props is not None and props.show_expert_mode
 
     def draw_header(self, context):
         props = context.scene.meshforge_settings
@@ -250,7 +324,6 @@ class VIEW3D_PT_meshforge_repair(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         props = context.scene.meshforge_settings
         layout.active = props.enable_repair
 
-        # Loose Geometry
         col = layout.column(align=True)
         col.prop(props, "repair_loose_geometry")
         if props.repair_loose_geometry:
@@ -261,7 +334,6 @@ class VIEW3D_PT_meshforge_repair(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
         layout.separator()
 
-        # Doubles
         col = layout.column(align=True)
         col.prop(props, "repair_doubles")
         if props.repair_doubles:
@@ -273,7 +345,6 @@ class VIEW3D_PT_meshforge_repair(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
         layout.separator()
 
-        # Zero Faces
         col = layout.column(align=True)
         col.prop(props, "repair_zero_faces")
         if props.repair_zero_faces:
@@ -281,7 +352,6 @@ class VIEW3D_PT_meshforge_repair(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
         layout.separator()
 
-        # Dispensables
         col = layout.column(align=True)
         col.prop(props, "repair_dispensables")
         if props.repair_dispensables:
@@ -292,11 +362,16 @@ class VIEW3D_PT_meshforge_repair(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
 
 class VIEW3D_PT_meshforge_manifold(VIEW3D_PT_meshforge_base, bpy.types.Panel):
-    """Section 3.2 - Manifold"""
+    """Section 3.2 - Manifold (Mode Expert)"""
     bl_idname = 'VIEW3D_PT_meshforge_manifold'
     bl_label = '2. Cohérence Manifold'
     bl_parent_id = 'VIEW3D_PT_meshforge_main'
     bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        props = getattr(context.scene, "meshforge_settings", None)
+        return props is not None and props.show_expert_mode
 
     def draw_header(self, context):
         props = context.scene.meshforge_settings
@@ -339,11 +414,16 @@ class VIEW3D_PT_meshforge_manifold(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
 
 class VIEW3D_PT_meshforge_dissolve(VIEW3D_PT_meshforge_base, bpy.types.Panel):
-    """Section 3.3 - Dissolve"""
+    """Section 3.3 - Dissolve (Mode Expert)"""
     bl_idname = 'VIEW3D_PT_meshforge_dissolve'
     bl_label = '3. Dissolution Coplanaire'
     bl_parent_id = 'VIEW3D_PT_meshforge_main'
     bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        props = getattr(context.scene, "meshforge_settings", None)
+        return props is not None and props.show_expert_mode
 
     def draw_header(self, context):
         props = context.scene.meshforge_settings
@@ -370,11 +450,16 @@ class VIEW3D_PT_meshforge_dissolve(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
 
 class VIEW3D_PT_meshforge_simplification(VIEW3D_PT_meshforge_base, bpy.types.Panel):
-    """Section 4 - Simplification intelligente (Phase C)"""
+    """Section 4 - Simplification Intelligente (Mode Expert)"""
     bl_idname = 'VIEW3D_PT_meshforge_simplification'
-    bl_label = '4. Simplification Intelligente'
+    bl_label = '4. Simplification Détaillée'
     bl_parent_id = 'VIEW3D_PT_meshforge_main'
     bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        props = getattr(context.scene, "meshforge_settings", None)
+        return props is not None and props.show_expert_mode
 
     def draw_header(self, context):
         props = context.scene.meshforge_settings
@@ -410,11 +495,16 @@ class VIEW3D_PT_meshforge_simplification(VIEW3D_PT_meshforge_base, bpy.types.Pan
 
 
 class VIEW3D_PT_meshforge_topology(VIEW3D_PT_meshforge_base, bpy.types.Panel):
-    """Section 3.4 - Topology"""
+    """Section 3.4 - Topology (Mode Expert)"""
     bl_idname = 'VIEW3D_PT_meshforge_topology'
-    bl_label = '4. Topologie (Tris / Quads)'
+    bl_label = '5. Topologie (Tris / Quads)'
     bl_parent_id = 'VIEW3D_PT_meshforge_main'
     bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        props = getattr(context.scene, "meshforge_settings", None)
+        return props is not None and props.show_expert_mode
 
     def draw_header(self, context):
         props = context.scene.meshforge_settings
@@ -442,11 +532,16 @@ class VIEW3D_PT_meshforge_topology(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
 
 class VIEW3D_PT_meshforge_normals(VIEW3D_PT_meshforge_base, bpy.types.Panel):
-    """Section 3.5 - Normals"""
+    """Section 3.5 - Normals (Mode Expert)"""
     bl_idname = 'VIEW3D_PT_meshforge_normals'
-    bl_label = '5. Normales & Ombrage'
+    bl_label = '6. Normales & Ombrage'
     bl_parent_id = 'VIEW3D_PT_meshforge_main'
     bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        props = getattr(context.scene, "meshforge_settings", None)
+        return props is not None and props.show_expert_mode
 
     def draw_header(self, context):
         props = context.scene.meshforge_settings
@@ -481,11 +576,16 @@ class VIEW3D_PT_meshforge_normals(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
 
 class VIEW3D_PT_meshforge_object_data(VIEW3D_PT_meshforge_base, bpy.types.Panel):
-    """Section 3.6 - Object Data"""
+    """Section 3.6 - Object Data (Mode Expert)"""
     bl_idname = 'VIEW3D_PT_meshforge_object_data'
-    bl_label = '6. Données d\'Objet'
+    bl_label = '7. Données d\'Objet'
     bl_parent_id = 'VIEW3D_PT_meshforge_main'
     bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        props = getattr(context.scene, "meshforge_settings", None)
+        return props is not None and props.show_expert_mode
 
     def draw_header(self, context):
         props = context.scene.meshforge_settings
@@ -511,6 +611,13 @@ class VIEW3D_PT_meshforge_report(VIEW3D_PT_meshforge_base, bpy.types.Panel):
     bl_label = 'Rapport & Statistiques'
     bl_parent_id = 'VIEW3D_PT_meshforge_main'
 
+    @classmethod
+    def poll(cls, context):
+        props = getattr(context.scene, "meshforge_settings", None)
+        if not props:
+            return False
+        return props.show_expert_mode or (props.last_duration > 0 or props.last_status != 'Prêt')
+
     def draw(self, context):
         layout = self.layout
         props = context.scene.meshforge_settings
@@ -520,7 +627,6 @@ class VIEW3D_PT_meshforge_report(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         if props.last_duration > 0:
             box.label(text=f"Durée totale : {props.last_duration:.3f} s", icon='TIME')
 
-        # Tableau comparatif Avant / Après
         col = box.column(align=True)
         row = col.row()
         row.label(text="Métrique")
@@ -545,7 +651,6 @@ class VIEW3D_PT_meshforge_report(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         if props.last_reduction > 0:
             box.label(text=f"Réduction globale : {props.last_reduction:.1f} %", icon='SOLO_ON')
 
-        # Boutons d'exportation de rapport (Phase B)
         row_exp = box.row(align=True)
         op_json = row_exp.operator("meshforge.export_report", text="Exporter (JSON)", icon='DOCUMENTS')
         op_json.format_type = 'JSON'

@@ -416,6 +416,15 @@ def diagnose_topology(
         "disjoint_components_total": comp_count
     }
 
+    # Calcul et attachement du diagnostic structuré et des faits (UX2/UX3)
+    try:
+        from .structured_diagnosis import measure_mesh_facts, evaluate_structured_diagnosis
+        facts = measure_mesh_facts(obj)
+        structured = evaluate_structured_diagnosis(facts, mode)
+    except Exception:
+        facts = {}
+        structured = {"findings": [], "recommended_actions": [], "summary_counts": {}}
+
     return {
         "valid": True,
         "object_name": obj.name,
@@ -426,5 +435,9 @@ def diagnose_topology(
         "total_vertices": len(mesh.vertices),
         "valence_stats": valence_stats,
         "summary": summary,
-        "defects": defects
+        "defects": defects,
+        "facts": facts,
+        "structured": structured,
+        "findings": structured.get("findings", []),
+        "recommended_actions": structured.get("recommended_actions", [])
     }

@@ -15,17 +15,41 @@ from bpy.props import (
 )
 
 
+def _on_profile_mode_changed(self, context):
+    try:
+        from .operators.topology_inspect import _ACTIVE_DIAGNOSIS_CACHE
+        from .core.structured_diagnosis import evaluate_structured_diagnosis
+        obj = context.active_object
+        if obj and obj.name in _ACTIVE_DIAGNOSIS_CACHE:
+            diag = _ACTIVE_DIAGNOSIS_CACHE[obj.name]
+            facts = diag.get("facts")
+            if facts:
+                new_struct = evaluate_structured_diagnosis(facts, self.asset_target_mode)
+                diag["structured"] = new_struct
+                diag["findings"] = new_struct.get("findings", [])
+                diag["recommended_actions"] = new_struct.get("recommended_actions", [])
+    except Exception:
+        pass
+
+
 class MeshForgeSettings(bpy.types.PropertyGroup):
-    # --- Assistant intelligent de préparation d'assets (Phase D) ---
+    # --- Assistant intelligent de préparation d'assets (Phase D & UX) ---
     asset_target_mode: EnumProperty(
         name="Objectif de l'Asset",
-        description="Définit l'objectif prioritaire de l'asset pour guider l'analyse et les corrections",
+        description="Définit l'usage prévu pour adapter le diagnostic et les recommandations sans recalcul lourd",
         items=[
-            ('GAME_TRIANGLES', "Asset de jeu — Triangles", "Pour les décors, rochers et objets statiques : réduction de triangles, préservation de silhouette et d'UV"),
-            ('DEFORMABLE_QUADS', "Asset déformable — Quads", "Pour les personnages, vêtements et objets articulés : flux de boucles régulier et déformation optimale"),
-            ('HYBRID_CLEANUP', "Asset hybride — Diagnostic", "Pour les objets mécaniques et mixtes : diagnostic complet et nettoyage conservateur sans conversion forcée")
+            ('GENERAL', "1. Diagnostic général — « Je ne sais pas »", "Analyse factuelle neutre. Seuls les défauts avérés sont signalés.", 'HELP', 0),
+            ('GAME_ASSET', "2. Asset de jeu", "Pour moteurs temps réel (Unity, Unreal, Godot). Triangles, budget et UVs.", 'PLAY', 1),
+            ('DEFORMABLE_CHAR', "3. Personnage déformable", "Pour animation et rigging. Boucles de quads régulières et pôles maîtrisés.", 'OUTLINER_OB_ARMATURE', 2),
+            ('SCULPTED_ORGANIC', "4. Modèle sculpté ou organique", "Pour sculpts haute densité. Préservation absolue de courbure, zéro décimation destructive.", 'BRUSH_DATA', 3),
+            ('MECHANICAL_CAD', "5. Objet mécanique ou assemblage", "Pour pièces CAD et hard-surface. Arêtes vives, faces planes et pièces multiples.", 'TOOL_SETTINGS', 4),
+            # Rétro-compatibilité
+            ('HYBRID_CLEANUP', "Général (Alias)", "Alias pour GENERAL", 'NONE', 5),
+            ('GAME_TRIANGLES', "Asset jeu (Alias)", "Alias pour GAME_ASSET", 'NONE', 6),
+            ('DEFORMABLE_QUADS', "Déformable (Alias)", "Alias pour DEFORMABLE_CHAR", 'NONE', 7)
         ],
-        default='HYBRID_CLEANUP'
+        default='GENERAL',
+        update=_on_profile_mode_changed
     )
     validation_depth: EnumProperty(
         name="Niveau de validation",
@@ -36,6 +60,38 @@ class MeshForgeSettings(bpy.types.PropertyGroup):
             ('PRE_EXPORT', "Avant export", "Validation stricte de conformité avant envoi vers le moteur cible")
         ],
         default='QUICK'
+    )
+    active_category_filter: EnumProperty(
+        name="Filtrer par catégorie",
+        description="Filtre les constats du tableau de bord selon le domaine d'analyse",
+        items=[
+            ('ALL', "Toutes les catégories", "Afficher tous les constats mesurés"),
+            ('GEOMETRY', "Géométrie & Dégénérescences", "Faces nulles, sommets orphelins, arêtes minuscules"),
+            ('TOPOLOGY', "Topologie & Connectivité", "N-gones, arêtes filaires, non-manifold, parois"),
+            ('SURFACE', "Silhouette & Surface", "Triangles très étirés et courbure"),
+            ('UV_MATERIAL', "UV & Matériaux", "Coutures et textures"),
+            ('NORMALS', "Normales & Ombrage", "Orientation et lissage"),
+            ('DENSITY', "Densité & Statistiques", "Statistiques polygonales et budget"),
+            ('DEFORMATION', "Préparation à la déformation", "Boucles de quads et pôles"),
+            ('EXPORT', "Préparation à l'export", "Conformité d'exportation")
+        ],
+        default='ALL'
+    )
+    active_severity_filter: EnumProperty(
+        name="Filtrer par sévérité",
+        description="Filtre les constats selon leur niveau d'importance",
+        items=[
+            ('ALL', "Tous les niveaux", "Afficher défauts, risques et observations"),
+            ('DEFECT', "Défauts critiques uniquement", "Anomalies géométriques et corruption"),
+            ('RISK', "Risques potentiels", "Points de vigilance pour le profil actif"),
+            ('OBSERVATION', "Observations factuelles", "Mesures neutres et statistiques")
+        ],
+        default='ALL'
+    )
+    show_findings_table: BoolProperty(
+        name="Tableau détaillé des constats",
+        description="Déploie ou replie le tableau d'analyse catégorisé",
+        default=True
     )
     active_defect_filter: EnumProperty(
         name="Filtrer les anomalies",

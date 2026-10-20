@@ -60,7 +60,8 @@ class MESHFORGE_OT_focus_defect(bpy.types.Operator):
     bl_description = "Sélectionne les éléments du défaut et cadre la vue 3D dessus"
     bl_options = {'REGISTER', 'UNDO'}
 
-    defect_index: bpy.props.IntProperty(name="Index du défaut", default=0)
+    defect_index: bpy.props.IntProperty(name="Index du défaut", default=-1)
+    finding_id: bpy.props.StringProperty(name="ID de l'anomalie", default="")
 
     @classmethod
     def poll(cls, context):
@@ -70,28 +71,48 @@ class MESHFORGE_OT_focus_defect(bpy.types.Operator):
         obj = context.active_object
         diag = _ACTIVE_DIAGNOSIS_CACHE.get(obj.name)
 
-        if not diag or "defects" not in diag or not diag["defects"]:
+        if not diag:
             # Si aucun diagnostic en cache, exécuter le diagnostic d'abord
             props = context.scene.meshforge_settings
             diag = diagnose_topology(obj, mode=props.asset_target_mode)
             _ACTIVE_DIAGNOSIS_CACHE[obj.name] = diag
 
+        target_defect = None
+        target_name = "Anomalie"
+
+        # 1. Recherche prioritaire par finding_id
+        if self.finding_id:
+            findings = diag.get("findings", [])
+            for f in findings:
+                f_id = getattr(f, "id", None) or (f.get("id") if isinstance(f, dict) else None)
+                if f_id == self.finding_id:
+                    if hasattr(f, "to_dict"):
+                        target_defect = f.to_dict()
+                    else:
+                        target_defect = dict(f)
+                    target_name = target_defect.get("name", self.finding_id)
+                    break
+
+        # 2. Repli sur defect_index dans la liste des défauts visuels
         defects = diag.get("defects", [])
-        if not defects:
-            self.report({'INFO'}, "MeshForge : Aucune anomalie détectée sur ce maillage.")
+        if target_defect is None and defects:
+            idx = 0 if self.defect_index < 0 else max(0, min(len(defects) - 1, self.defect_index))
+            target_defect = defects[idx]
+            target_name = target_defect.get("name", f"Défaut #{idx+1}")
+            context.scene.meshforge_settings.active_defect_index = idx
+
+        if not target_defect:
+            self.report({'INFO'}, "MeshForge : Aucune anomalie ciblée ou maillage sain.")
             return {'FINISHED'}
 
-        idx = max(0, min(len(defects) - 1, self.defect_index))
-        defect = defects[idx]
+        # 3. Sélection non-destructive
+        if target_defect.get("indices"):
+            select_defect(obj, target_defect)
 
-        # 1. Sélection non-destructive
-        select_defect(obj, defect)
+        # 4. Cadrage sécurisé (zoom)
+        ok_zoom, zoom_msg = zoom_to_defect(target_defect, context)
 
-        # 2. Cadrage sécurisé (zoom)
-        ok_zoom, zoom_msg = zoom_to_defect(defect, context)
-
-        context.scene.meshforge_settings.active_defect_index = idx
-        self.report({'INFO'}, f"MeshForge : {defect.get('name')} sélectionné. {zoom_msg}")
+        self.report({'INFO'}, f"MeshForge : {target_name} sélectionné. {zoom_msg}")
         return {'FINISHED'}
 
 
