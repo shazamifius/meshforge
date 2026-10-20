@@ -96,6 +96,47 @@ class MESHFORGE_OT_dissolve(bpy.types.Operator):
         props = context.scene.meshforge_settings
         source_obj = context.active_object
 
+        # 1. Protection Shape Keys (Point 1 de Sécurisation UX8)
+        has_shape_keys = (source_obj.data.shape_keys is not None and len(source_obj.data.shape_keys.key_blocks) > 0)
+        if has_shape_keys:
+            if not getattr(props, "create_new_object", True):
+                self.report(
+                    {'ERROR'},
+                    "MeshForge : Cet objet possède des Shape Keys. Pour ne jamais altérer l'original, "
+                    "la création d'une copie autonome est obligatoire. Réactivez 'Créer un nouvel objet'."
+                )
+                return {'CANCELLED'}
+            if not getattr(props, "allow_shape_keys_removal_on_copy", False):
+                self.report(
+                    {'ERROR'},
+                    "MeshForge : Cet objet possède des Shape Keys (clés de forme). La dissolution géométrique "
+                    "altère la topologie des clés d'animation. Cochez l'option 'Créer copie statique sans Shape Keys' "
+                    "pour travailler sur une copie sans modifier l'original."
+                )
+                return {'CANCELLED'}
+
+        # 2. Détection des risques identifiables de dissolution agressive (Point 2 de Sécurisation UX8)
+        mesh_has_seams = any(e.use_seam for e in source_obj.data.edges)
+        mesh_has_sharp = any(e.use_edge_sharp for e in source_obj.data.edges)
+        profile = getattr(props, "asset_target_mode", "GENERAL")
+
+        risk_reasons = []
+        if mesh_has_seams and not getattr(props, "preserve_seams", True):
+            risk_reasons.append("Coutures UV non préservées (risque de déchirure de texture)")
+        if mesh_has_sharp and not getattr(props, "preserve_sharp", True):
+            risk_reasons.append("Arêtes vives non préservées (risque d'altération d'ombrage)")
+        if getattr(props, "dissolve_mode", "BALANCED") == 'AGGRESSIVE' and profile in ('GAME_ASSET', 'DEFORMABLE_CHAR'):
+            risk_reasons.append(f"Dissolution agressive sur profil sensible aux N-gones ({profile})")
+
+        if risk_reasons and not getattr(props, "confirm_aggressive_dissolve", False):
+            risks_text = " ; ".join(risk_reasons)
+            self.report(
+                {'WARNING'},
+                f"MeshForge Dissolve bloqué par prudence : {risks_text}. "
+                "Cochez 'Confirmer dissolution agressive' pour forcer l'exécution."
+            )
+            return {'CANCELLED'}
+
         target_obj = source_obj
         if getattr(props, "create_new_object", True) and not source_obj.name.endswith("_MF_Optimized"):
             target_obj = duplicate_object_non_destructive(source_obj)
@@ -103,6 +144,10 @@ class MESHFORGE_OT_dissolve(bpy.types.Operator):
                 source_obj.hide_set(True)
             bpy.context.view_layer.objects.active = target_obj
             target_obj.select_set(True)
+
+        if has_shape_keys and target_obj != source_obj:
+            if target_obj.data.shape_keys:
+                target_obj.shape_key_clear()
 
         m_in = target_obj.data
         v_before = len(m_in.vertices)
@@ -208,6 +253,25 @@ class MESHFORGE_OT_simplification(bpy.types.Operator):
         props = context.scene.meshforge_settings
         source_obj = context.active_object
 
+        # 1. Protection Shape Keys (Point 1 de Sécurisation UX8)
+        has_shape_keys = (source_obj.data.shape_keys is not None and len(source_obj.data.shape_keys.key_blocks) > 0)
+        if has_shape_keys:
+            if not getattr(props, "create_new_object", True):
+                self.report(
+                    {'ERROR'},
+                    "MeshForge : Cet objet possède des Shape Keys. Pour ne jamais altérer l'original, "
+                    "la création d'une copie autonome est obligatoire. Réactivez 'Créer un nouvel objet'."
+                )
+                return {'CANCELLED'}
+            if not getattr(props, "allow_shape_keys_removal_on_copy", False):
+                self.report(
+                    {'ERROR'},
+                    "MeshForge : Cet objet possède des Shape Keys (clés de forme). Blender interdit l'application "
+                    "du modificateur Decimate sur un maillage avec Shape Keys. "
+                    "Cochez l'option 'Créer copie statique sans Shape Keys' pour travailler sur une copie sans modifier l'original."
+                )
+                return {'CANCELLED'}
+
         target_obj = source_obj
         if getattr(props, "create_new_object", True) and not source_obj.name.endswith("_MF_Optimized"):
             target_obj = duplicate_object_non_destructive(source_obj)
@@ -215,6 +279,10 @@ class MESHFORGE_OT_simplification(bpy.types.Operator):
                 source_obj.hide_set(True)
             bpy.context.view_layer.objects.active = target_obj
             target_obj.select_set(True)
+
+        if has_shape_keys and target_obj != source_obj:
+            if target_obj.data.shape_keys:
+                target_obj.shape_key_clear()
 
         m_in = target_obj.data
         v_before = len(m_in.vertices)

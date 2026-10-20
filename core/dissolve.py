@@ -71,10 +71,20 @@ def execute_dissolve(obj: bpy.types.Object, props: Any) -> Dict[str, Any]:
         final_faces = len(bm.faces)
         results["faces_after"] = final_faces
         results["delta_faces"] = initial_faces - final_faces
-        results["log"].append(
+
+        # Inspection qualitative des faces créées (détection des grands N-gones)
+        max_verts = max((len(f.verts) for f in bm.faces), default=0)
+        giant_ngons = sum(1 for f in bm.faces if len(f.verts) >= 16)
+        results["max_face_vertices"] = max_verts
+        results["giant_ngons_count"] = giant_ngons
+
+        log_msg = (
             f"Dissolution coplanaire terminée : {results['delta_faces']} faces dissoutes "
             f"(angle: {math.degrees(angle_rad):.1f}°, délimiters: {sorted(list(delimiters))})."
         )
+        if giant_ngons > 0:
+            log_msg += f" Note : {giant_ngons} grand(s) N-gone(s) formé(s) (jusqu'à {max_verts} côtés)."
+        results["log"].append(log_msg)
     except Exception as e:
         results["status"] = "ERROR"
         results["log"].append(f"Erreur lors de la dissolution : {e}")

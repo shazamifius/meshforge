@@ -452,6 +452,41 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                 col_w.scale_y = 0.85
                 col_w.label(text="Avertissement : les modifications écraseront l'objet actif.")
 
+            # Protection Shape Keys (Point 1 de Sécurisation UX8)
+            has_sk = (mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 0)
+            if has_sk:
+                box_sk = box_sec.box()
+                box_sk.alert = True
+                box_sk.label(text="Attention : Shape Keys détectées !", icon='ERROR')
+                col_sk = box_sk.column(align=True)
+                col_sk.scale_y = 0.85
+                col_sk.label(text="Blender interdit de modifier la topologie d'un maillage avec clés de forme.")
+                col_sk.label(text="Pour réduire, une copie statique sans Shape Keys est requise.")
+                col_sk.label(text="L'objet original conservera 100% de ses clés d'animation intactes.")
+                box_sk.prop(props, "allow_shape_keys_removal_on_copy", text="Créer copie statique sans Shape Keys")
+
+            # Protection Dissolution Agressive (Point 2 de Sécurisation UX8)
+            if props.decimate_method == 'DISSOLVE':
+                mesh_has_seams = any(e.use_seam for e in mesh.edges)
+                mesh_has_sharp = any(e.use_edge_sharp for e in mesh.edges)
+                dissolve_risks = []
+                if mesh_has_seams and not props.preserve_seams:
+                    dissolve_risks.append("Coutures UV non préservées (risque de distorsion)")
+                if mesh_has_sharp and not props.preserve_sharp:
+                    dissolve_risks.append("Arêtes vives non préservées (risque d'altération d'ombrage)")
+                if props.dissolve_mode == 'AGGRESSIVE' and resolved_profile in ('GAME_ASSET', 'DEFORMABLE_CHAR'):
+                    dissolve_risks.append(f"Dissolution agressive sur profil sensible ({resolved_profile})")
+
+                if dissolve_risks:
+                    box_rk = box_sec.box()
+                    box_rk.alert = True
+                    box_rk.label(text="Risque de dissolution identifié :", icon='ERROR')
+                    col_rk = box_rk.column(align=True)
+                    col_rk.scale_y = 0.85
+                    for r_item in dissolve_risks:
+                        col_rk.label(text=f"• {r_item}")
+                    box_rk.prop(props, "confirm_aggressive_dissolve", text="Confirmer la dissolution à risque")
+
             # 4.5 Bouton d'action
             col_exec = box_dec.column(align=True)
             col_exec.scale_y = 1.3

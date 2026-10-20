@@ -53,6 +53,16 @@ class MeshForgeSettings(bpy.types.PropertyGroup):
         ],
         default='COLLAPSE'
     )
+    allow_shape_keys_removal_on_copy: BoolProperty(
+        name="Créer copie statique sans Shape Keys",
+        description="Autorise la création d'une copie autonome débarrassée de ses clés de forme pour permettre la décimation native Blender (l'objet original conserve ses Shape Keys intactes)",
+        default=False
+    )
+    confirm_aggressive_dissolve: BoolProperty(
+        name="Confirmer dissolution agressive",
+        description="Confirmation explicite lorsque la dissolution désactive les protections UV ou d'arêtes vives",
+        default=False
+    )
     asset_target_mode: EnumProperty(
         name="Objectif de l'Asset",
         description="Définit l'usage prévu pour adapter le diagnostic et les recommandations sans recalcul lourd",
