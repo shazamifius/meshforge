@@ -42,7 +42,7 @@ class MESHFORGE_OT_analyze_topology(bpy.types.Operator):
 
         # Appliquer la coloration temporaire si des défauts existent
         if total_anomalies > 0:
-            apply_color_inspection(obj, diag.get("defects", []))
+            apply_color_inspection(obj, diag.get("defects", []), context=context)
 
         msg = (
             f"Analyse topologique terminée : {total_anomalies} anomalie(s) "
@@ -108,6 +108,6 @@ class MESHFORGE_OT_clear_defect_view(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.active_object
-        clear_inspection_view(obj)
+        clear_inspection_view(obj, context=context)
         self.report({'INFO'}, "MeshForge : Inspection visuelle effacée.")
         return {'FINISHED'}

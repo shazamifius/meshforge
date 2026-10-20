@@ -13,6 +13,56 @@ import numpy as np
 from typing import Dict, Any, List, Set, Tuple, Optional
 
 
+# ---------------------------------------------------------------------------
+# Spécifications documentées des seuils diagnostiques
+# ---------------------------------------------------------------------------
+THRESHOLD_SPECS = {
+    "micro_edge": {
+        "factor": 1e-4,  # 0.01% de la diagonale de la boîte englobante locale
+        "floor_meters": 1e-6,  # 1 micromètre minimum absolu
+        "unit": "ratio relatif / mètres",
+        "justification": (
+            "Sur un modèle de taille humaine (2 m), 1e-4 correspond à 0.2 mm. "
+            "Les arêtes inférieures à cette longueur résultent quasi-systématiquement "
+            "d'extrusions involontaires, de doubles sommets non fusionnés ou d'imprécisions booléennes."
+        )
+    },
+    "zero_area_face": {
+        "threshold_sq_meters": 1e-7,  # 0.1 mm²
+        "unit": "mètres carrés",
+        "justification": (
+            "Seuil numérique en deçà duquel l'aire polygonale est considérée dégénérée, "
+            "provoquant des divisions par zéro lors du calcul des normales et du rendu."
+        )
+    },
+    "needle_aspect_ratio": {
+        "threshold": 8.0,  # ratio arête_max / arête_min
+        "unit": "ratio sans dimension",
+        "justification": (
+            "Un triangle effilé avec un rapport supérieur à 8:1 génère de sévères "
+            "artefacts de dégradé d'ombrage spéculaire et dégrade le conditionnement de simulation."
+        )
+    },
+    "minor_component_ratio": {
+        "threshold": 0.05,  # moins de 5% du nombre de faces du composant dominant
+        "min_faces": 10,
+        "unit": "pourcentage relatif",
+        "justification": (
+            "Distingue un composant mécanique intentionnel (ex: 4 roues représentant chacune 20% des faces) "
+            "d'un résidu flottant ou débris oublié suite à une découpe booléenne."
+        )
+    },
+    "complex_pole_valence": {
+        "threshold": 6,  # 6 arêtes ou plus connectées à un sommet non-frontière
+        "unit": "degré de connectivité (nombre d'arêtes)",
+        "justification": (
+            "Les pôles de valence >= 6 en géométrie quad interrompent les boucles d'arêtes "
+            "et créent des plis en étoile non maîtrisables lors des déformations d'armature (rigging)."
+        )
+    }
+}
+
+
 def diagnose_topology(
     obj: bpy.types.Object,
     mode: str = 'HYBRID_CLEANUP',
@@ -64,28 +114,31 @@ def diagnose_topology(
         v_count = len(f.verts)
         if v_count > 4:
             ngon_count += 1
-            # Vérifier si le n-gone est concave
-            # Un n-gone est concave si les produits vectoriels consécutifs changent de sens
+            # Vérifier si le n-gone est concave (angle rentrant supérieur à 180°)
             f_norm = f.normal
             is_concave = False
             if v_count >= 5:
-                signs = []
+                # Test d'angle rentrant (> 180°) invariant à l'échelle via produit vectoriel normalisé
                 for i in range(v_count):
                     p0 = f.verts[i - 1].co
                     p1 = f.verts[i].co
                     p2 = f.verts[(i + 1) % v_count].co
-                    cross = (p1 - p0).cross(p2 - p1)
-                    dot = cross.dot(f_norm)
-                    if abs(dot) > 1e-6:
-                        signs.append(1 if dot > 0 else -1)
-                if len(set(signs)) > 1:
-                    is_concave = True
-                    concave_ngon_count += 1
+                    v_in = p1 - p0
+                    v_out = p2 - p1
+                    len_in = v_in.length
+                    len_out = v_out.length
+                    if len_in > 1e-7 and len_out > 1e-7:
+                        cross = v_in.cross(v_out)
+                        sin_theta = cross.dot(f_norm) / (len_in * len_out)
+                        if sin_theta < -1e-4:
+                            is_concave = True
+                            concave_ngon_count += 1
+                            break
 
             risk_desc = (
-                "N-gone concave à triangulation potentiellement auto-intersectante."
+                "N-gone concave (angle rentrant supérieur à 180°) : la triangulation automatique par simple éventail risque de produire des triangles se chevauchant ou mal orientés."
                 if is_concave else
-                f"Face à {v_count} sommets. Risque d'artefacts lors de la déformation ou de la subdivision."
+                f"Face à {v_count} sommets convexes. Risque d'artefacts d'ombrage ou de tension lors de la déformation ou de la subdivision Catmull-Clark."
             )
             defects.append({
                 "id": f"ngon_{f.index}",
@@ -133,13 +186,13 @@ def diagnose_topology(
                         ),
                         "recommendation": "Fusionner avec un triangle adjacent (Alt+J) ou rediriger les arêtes."
                     })
-            elif mode == 'HYBRID_CLEANUP':
-                # En hybride, on ne signale que les triangles très étirés (forme aiguille)
+            elif mode in ('HYBRID_CLEANUP', 'GAME_TRIANGLES'):
+                # En hybride ou jeu, on signale les triangles très étirés (forme aiguille / needle)
                 edge_lens = [e.calc_length() for e in f.edges]
                 max_l = max(edge_lens) if edge_lens else 1.0
                 min_l = min(edge_lens) if edge_lens else 1.0
                 aspect = max_l / max(1e-7, min_l)
-                if aspect > 8.0:
+                if aspect > THRESHOLD_SPECS["needle_aspect_ratio"]["threshold"]:
                     suspect_triangles += 1
                     defects.append({
                         "id": f"tri_{f.index}",
@@ -150,7 +203,10 @@ def diagnose_topology(
                         "element_type": "FACE",
                         "indices": [f.index],
                         "center": tuple(f.calc_center_bounds()),
-                        "explanation": "Triangle extrêmement fin et allongé, susceptible de générer des artefacts d'ombrage.",
+                        "explanation": (
+                            f"Triangle extrêmement fin et allongé (rapport de côtés {aspect:.1f}:1 supérieur au seuil de 8:1). "
+                            "Susceptible de générer des artefacts de dégradé d'ombrage et des instabilités de rastérisation."
+                        ),
                         "recommendation": "Réorganiser les arêtes pour équilibrer la géométrie."
                     })
 
@@ -191,6 +247,7 @@ def diagnose_topology(
                 "severity": "WARNING",
                 "element_type": "EDGE",
                 "indices": [e.index],
+                "face_indices": [f.index for f in e.link_faces],
                 "center": tuple(midpoint),
                 "explanation": (
                     f"Arête exceptionnellement courte par rapport à l'échelle de l'objet (seuil {effective_micro_edge*1000:.3f} mm). "
@@ -213,12 +270,13 @@ def diagnose_topology(
                 "severity": "ERROR",
                 "element_type": "EDGE",
                 "indices": [e.index],
+                "face_indices": [f.index for f in e.link_faces],
                 "center": tuple(midpoint),
                 "explanation": (
                     f"Cette arête est partagée par {link_count} faces (au lieu de 2 maximum pour une surface solide). "
-                    "Elle crée une géométrie interne ou une jonction en T invalide."
+                    "Elle forme une paroi intérieure ou une jonction en T interdite sur un asset 3D propre."
                 ),
-                "recommendation": "Supprimer la face intérieure surnuméraire pour restaurer une surface propre."
+                "recommendation": "Supprimer la face intérieure surnuméraire ou scinder les surfaces."
             })
 
     # 3.4 Pôles problématiques (Valence >= 6 sur maillage déformable)
@@ -236,6 +294,7 @@ def diagnose_topology(
                 "severity": "WARNING",
                 "element_type": "VERT",
                 "indices": [v.index],
+                "face_indices": [f.index for f in v.link_faces],
                 "center": tuple(v.co),
                 "explanation": (
                     f"Ce sommet relie {val} arêtes. Les pôles à haute valence créent des tensions visibles, "
@@ -306,11 +365,16 @@ def diagnose_topology(
     if comp_count > 1:
         # Trier par taille de composante (nombre de faces)
         disjoint_components.sort(key=len, reverse=True)
-        # Signaler les composantes mineures (petits fragments < 5% de la surface totale)
+        # Signaler les composantes mineures (petits fragments < 5% du nombre de faces du composant dominant)
         main_comp_size = len(disjoint_components[0])
+        min_cutoff = max(
+            THRESHOLD_SPECS["minor_component_ratio"]["min_faces"],
+            int(main_comp_size * THRESHOLD_SPECS["minor_component_ratio"]["threshold"])
+        )
         for idx_comp, comp in enumerate(disjoint_components[1:], start=2):
-            if len(comp) < max(10, main_comp_size * 0.05):
+            if len(comp) < min_cutoff:
                 isolated_count += 1
+                ratio_pct = (len(comp) / max(1, main_comp_size)) * 100.0
                 c_center = tuple(np.mean([f.calc_center_bounds() for f in comp], axis=0))
                 defects.append({
                     "id": f"isolated_component_{idx_comp}",
@@ -322,7 +386,7 @@ def diagnose_topology(
                     "indices": [f.index for f in comp],
                     "center": c_center,
                     "explanation": (
-                        f"Ce morceau est physiquement disjoint du composant principal ({len(comp)} faces contre {main_comp_size}). "
+                        f"Ce morceau est physiquement disjoint du composant principal ({len(comp)} faces contre {main_comp_size}, soit {ratio_pct:.1f}%). "
                         "Il peut s'agir d'un boulon ou accessoire intentionnel, ou d'un débris de modélisation oublié."
                     ),
                     "recommendation": "Vérifier si cet élément fait partie du modèle ou doit être supprimé."

@@ -1,17 +1,18 @@
 """MeshForge - Module de visualisation et cadrage non-destructif (Phase D1).
 Gère la sélection et le cadrage (zoom) des anomalies géométriques dans la vue 3D,
 ainsi que l'attribution temporaire de couleurs d'inspection sémantiques révocables sans perte de données.
+Garantit formellement la préservation et la restauration des attributs utilisateur et du mode d'affichage viewport.
 """
 
 from __future__ import annotations
 import bpy
 import bmesh
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 # Palette de couleurs sémantiques (RGBA)
 CATEGORY_COLORS = {
     'ORANGE': (1.0, 0.5, 0.05, 1.0),   # N-gones
-    'BLUE':   (0.15, 0.55, 1.0, 1.0),   # Triangles à examiner
+    'BLUE':   (0.15, 0.55, 1.0, 1.0),   # Triangles à examiner (déformables ou aiguilles)
     'RED':    (0.95, 0.15, 0.15, 1.0),  # Dégénérescences & Non-manifold
     'VIOLET': (0.75, 0.25, 0.95, 1.0),  # Éléments isolés / Loose
     'NEUTRAL': (0.6, 0.6, 0.6, 1.0)     # Géométrie saine
@@ -19,10 +20,51 @@ CATEGORY_COLORS = {
 
 TEMP_ATTR_NAME = "_MF_Inspection_Temp"
 
+# Mémorisation d'état pour restauration non-destructive
+_PRIOR_ACTIVE_COLOR_ATTRS: Dict[str, Optional[str]] = {}
+_PRIOR_SHADING_COLOR_TYPE: Dict[int, str] = {}
+
+
+def _find_active_3d_spaces(context: Optional[bpy.types.Context] = None) -> List[Any]:
+    """Retourne la liste des espaces 3D (View3D) actifs dans la fenêtre Blender."""
+    spaces = []
+    ctx = context or bpy.context
+    if hasattr(ctx, "screen") and ctx.screen:
+        for area in ctx.screen.areas:
+            if area.type == 'VIEW_3D':
+                for space in area.spaces:
+                    if space.type == 'VIEW_3D':
+                        spaces.append(space)
+    return spaces
+
+
+def _ensure_viewport_shading_for_colors(context: Optional[bpy.types.Context] = None) -> None:
+    """Bascule le shading du viewport en mode affichage de couleurs d'attributs (VERTEX)
+    en mode Solide, afin que l'utilisateur voie immédiatement les couleurs sémantiques.
+    Mémorise le mode de couleur précédent pour restauration à la fermeture.
+    """
+    for space in _find_active_3d_spaces(context):
+        shading = getattr(space, "shading", None)
+        if shading and shading.type == 'SOLID':
+            if shading.color_type != 'VERTEX':
+                _PRIOR_SHADING_COLOR_TYPE[id(space)] = shading.color_type
+                shading.color_type = 'VERTEX'
+
+
+def _restore_viewport_shading(context: Optional[bpy.types.Context] = None) -> None:
+    """Restaure le type de couleur de shading viewport initial."""
+    for space in _find_active_3d_spaces(context):
+        space_id = id(space)
+        if space_id in _PRIOR_SHADING_COLOR_TYPE:
+            prior_type = _PRIOR_SHADING_COLOR_TYPE.pop(space_id)
+            shading = getattr(space, "shading", None)
+            if shading and shading.type == 'SOLID':
+                shading.color_type = prior_type
+
 
 def select_defect(obj: bpy.types.Object, defect: Dict[str, Any]) -> bool:
-    """Sélectionne de façon non-destructive les éléments (sommets, arêtes ou faces)
-    composant le défaut sélectionné.
+    """Sélectionne de façon strictement non-destructive les éléments (sommets, arêtes ou faces)
+    composant le défaut sélectionné. Ne modifie aucune coordonnée ni topologie.
     """
     if not obj or obj.type != 'MESH' or not obj.data:
         return False
@@ -31,7 +73,6 @@ def select_defect(obj: bpy.types.Object, defect: Dict[str, Any]) -> bool:
     elem_type = defect.get("element_type", "FACE")
     indices = set(defect.get("indices", []))
 
-    prev_mode = obj.mode
     bpy.context.view_layer.objects.active = obj
 
     if obj.mode == 'EDIT':
@@ -82,7 +123,7 @@ def select_defect(obj: bpy.types.Object, defect: Dict[str, Any]) -> bool:
 
 def zoom_to_defect(defect: Dict[str, Any], context: bpy.types.Context) -> Tuple[bool, str]:
     """Cadre la vue 3D (Frame Selected / Zoom) sur la sélection ou le centre du défaut.
-    Gère explicitement le contexte pour éviter toute erreur si aucune fenêtre 3D n'est active.
+    Gère explicitement le contexte pour éviter toute exception lorsqu'aucune fenêtre 3D n'est active.
     """
     center = defect.get("center")
     if not center:
@@ -117,9 +158,15 @@ def zoom_to_defect(defect: Dict[str, Any], context: bpy.types.Context) -> Tuple[
     return True, "Cadrage 3D effectué."
 
 
-def apply_color_inspection(obj: bpy.types.Object, defects: List[Dict[str, Any]]) -> bool:
+def apply_color_inspection(
+    obj: bpy.types.Object,
+    defects: List[Dict[str, Any]],
+    context: Optional[bpy.types.Context] = None
+) -> bool:
     """Attribue temporairement des couleurs d'inspection sémantiques sur un calque dédié.
     Ce calque est strictement temporaire et n'écrase jamais les attributs de couleur existants.
+    Mémorise l'attribut actif d'origine pour le restaurer lors de la fermeture.
+    Active également le mode d'affichage couleur dans la vue 3D.
     """
     if not obj or obj.type != 'MESH' or not obj.data:
         return False
@@ -127,8 +174,23 @@ def apply_color_inspection(obj: bpy.types.Object, defects: List[Dict[str, Any]])
     mesh = obj.data
     color_attrs = mesh.color_attributes
 
+    # Mémoriser l'attribut de couleur utilisateur actif avant d'activer l'attribut temporaire
+    prior_attr = color_attrs.active_color
+    if prior_attr and prior_attr.name != TEMP_ATTR_NAME:
+        _PRIOR_ACTIVE_COLOR_ATTRS[obj.name] = prior_attr.name
+    elif obj.name not in _PRIOR_ACTIVE_COLOR_ATTRS:
+        # Trouver un éventuel premier attribut préexistant non temporaire
+        user_attrs = [a.name for a in color_attrs if a.name != TEMP_ATTR_NAME]
+        _PRIOR_ACTIVE_COLOR_ATTRS[obj.name] = user_attrs[0] if user_attrs else None
+
     # Récupérer ou créer l'attribut temporaire dédié
     temp_attr = color_attrs.get(TEMP_ATTR_NAME)
+    if temp_attr:
+        # Vérifier que le format est compatible
+        if getattr(temp_attr, "data_type", None) != 'FLOAT_COLOR' or getattr(temp_attr, "domain", None) != 'CORNER':
+            color_attrs.remove(temp_attr)
+            temp_attr = None
+
     if not temp_attr:
         try:
             temp_attr = color_attrs.new(
@@ -144,35 +206,59 @@ def apply_color_inspection(obj: bpy.types.Object, defects: List[Dict[str, Any]])
     for col in temp_attr.data:
         col.color = neutral
 
-    # Colorer les faces concernées selon leur catégorie
-    loop_offset = 0
-    face_colors = {}
+    # Priorité sémantique pour la coloration des faces :
+    # RED (Erreur bloquante) > ORANGE (N-gone) > BLUE (Triangle) > VIOLET (Îlot isolé)
+    category_priority = {
+        'RED': 4,
+        'ORANGE': 3,
+        'BLUE': 2,
+        'VIOLET': 1,
+        'NEUTRAL': 0
+    }
+
+    # Déterminer la catégorie prioritaire pour chaque face
+    face_category: Dict[int, str] = {}
     for d in defects:
-        if d.get("element_type") == "FACE":
-            color = CATEGORY_COLORS.get(d.get("category", "ORANGE"), neutral)
-            for f_idx in d.get("indices", []):
-                face_colors[f_idx] = color
+        cat = d.get("category", "NEUTRAL")
+        prio = category_priority.get(cat, 0)
+        # Prendre les indices de faces directes ou incidentes (pour arêtes et sommets)
+        f_list = d.get("face_indices") if d.get("face_indices") else d.get("indices", [])
+        if d.get("element_type") == "FACE" or d.get("face_indices"):
+            for f_idx in f_list:
+                curr_cat = face_category.get(f_idx)
+                if not curr_cat or prio > category_priority.get(curr_cat, 0):
+                    face_category[f_idx] = cat
 
     for poly in mesh.polygons:
-        col = face_colors.get(poly.index)
-        if col:
+        cat = face_category.get(poly.index)
+        if cat:
+            col = CATEGORY_COLORS.get(cat, neutral)
             for l_idx in poly.loop_indices:
                 if l_idx < len(temp_attr.data):
                     temp_attr.data[l_idx].color = col
 
-    # Activer l'attribut temporaire pour le rendu viewport
+    # Activer l'attribut temporaire pour le viewport
     color_attrs.active_color = temp_attr
+
+    # Activer l'affichage des couleurs d'attributs dans le viewport 3D
+    _ensure_viewport_shading_for_colors(context)
     return True
 
 
-def clear_inspection_view(obj: bpy.types.Object) -> bool:
-    """Supprime l'attribut de couleur temporaire et nettoie la sélection sans altérer le maillage."""
+def clear_inspection_view(
+    obj: bpy.types.Object,
+    context: Optional[bpy.types.Context] = None
+) -> bool:
+    """Supprime l'attribut de couleur temporaire et nettoie la sélection sans altérer le maillage.
+    Garantit formellement qu'aucun attribut utilisateur n'est supprimé, et restaure
+    l'attribut de couleur actif d'origine ainsi que le shading viewport.
+    """
     if not obj or obj.type != 'MESH' or not obj.data:
         return False
 
     mesh = obj.data
 
-    # Désélectionner
+    # 1. Désélectionner
     if obj.mode == 'EDIT':
         bm = bmesh.from_edit_mesh(mesh)
         for v in bm.verts: v.select = False
@@ -184,9 +270,21 @@ def clear_inspection_view(obj: bpy.types.Object) -> bool:
         for e in mesh.edges: e.select = False
         for f in mesh.polygons: f.select = False
 
-    # Supprimer l'attribut temporaire
+    # 2. Restaurer l'attribut actif utilisateur d'origine
+    prior_name = _PRIOR_ACTIVE_COLOR_ATTRS.pop(obj.name, None)
+    if prior_name and prior_name in mesh.color_attributes and prior_name != TEMP_ATTR_NAME:
+        mesh.color_attributes.active_color = mesh.color_attributes[prior_name]
+    elif len(mesh.color_attributes) > 0:
+        remaining_user_attrs = [a for a in mesh.color_attributes if a.name != TEMP_ATTR_NAME]
+        if remaining_user_attrs:
+            mesh.color_attributes.active_color = remaining_user_attrs[0]
+
+    # 3. Supprimer UNIQUEMENT l'attribut temporaire
     temp_attr = mesh.color_attributes.get(TEMP_ATTR_NAME)
     if temp_attr:
         mesh.color_attributes.remove(temp_attr)
+
+    # 4. Restaurer le mode de shading viewport
+    _restore_viewport_shading(context)
 
     return True
