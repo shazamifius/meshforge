@@ -19,6 +19,7 @@ from tests.test_phase_c2_quality import TestMeshForgePhaseC2Quality
 from tests.test_phase_d1_diagnosis import TestMeshForgePhaseD1Diagnosis
 from tests.test_interactive_gui import TestMeshForgePhaseD1Interactive
 from tests.test_phase_d2_conservative import TestMeshForgePhaseD2Conservative
+from tests.test_phase_d2_ngon_cut import TestMeshForgePhaseD2_2
 
 if __name__ == "__main__":
     suite = unittest.TestSuite()
@@ -29,6 +30,7 @@ if __name__ == "__main__":
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseD1Diagnosis))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseD1Interactive))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseD2Conservative))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseD2_2))
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     sys.exit(0 if result.wasSuccessful() else 1)

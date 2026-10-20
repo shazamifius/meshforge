@@ -1,10 +1,10 @@
-"""MeshForge - Module de nettoyage conservateur et transactionnel (Phase D2.1).
+"""MeshForge - Module de nettoyage conservateur et transactionnel (Phase D2.1 & D2.2).
 Exécute des opérations ciblées, rigoureusement réversibles et non-destructives
 sur les anomalies géométriques élémentaires :
 1. Sommets orphelins (Loose Vertices) - Risque Nul
 2. Arêtes filaires sans face (Wire Edges) - Risque Faible (règle explicite)
-3. Faces dégénérées / d'aire nulle (Zero-Area Faces) - Risque Modéré (préservation des frontières)
-4. Fusion des sommets doublons géométriques (Merge Doubles) - Risque Contrôlé (seuil explicite et protection des seams UV)
+3. Faces dégénérées / d'aire nulle (Zero-Area Faces) - Risque Modéré (préservation des frontières et micro-structures)
+4. Fusion des sommets doublons géométriques (Merge Doubles) - Risque Contrôlé (seuil explicite et protection des discontinuités UV)
 
 Garantit un mécanisme transactionnel avec snapshot et rollback automatique en cas de violation d'invariants.
 """
@@ -14,64 +14,124 @@ import bpy
 import bmesh
 import time
 import numpy as np
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 
 from .topology_diagnosis import diagnose_topology
 
 
 class MeshSnapshot:
-    """Instantané complet des données de maillage pour garantie transactionnelle de rollback."""
+    """Instantané complet des données de maillage pour garantie transactionnelle de rollback.
+    Capture et restaure fidèlement :
+    - Coordonnées des sommets et connectivité arêtes / polygones
+    - Multiples couches UV (noms et coordonnées par boucle de face)
+    - Matériaux assignés et indices de matériaux par polygone
+    - Groupes de sommets et pondérations d'armature (deform vertex groups)
+    - Couleurs de sommets et attributs de couleur (color attributes)
+    - Propriétés topologiques d'arêtes (seam, sharp, crease) et ombrage (smooth)
+    - Attributs génériques du maillage
+    """
     def __init__(self, mesh: bpy.types.Mesh):
         self.name = mesh.name
-        self.vertex_coords = np.array([v.co for v in mesh.vertices], dtype=np.float64)
-        self.edge_keys = [(e.vertices[0], e.vertices[1]) for e in mesh.edges]
-        self.polygon_loops = [[loop_idx for loop_idx in p.loop_indices] for p in mesh.polygons]
-        self.polygon_vertices = [[v_idx for v_idx in p.vertices] for p in mesh.polygons]
-        self.has_uv = len(mesh.uv_layers) > 0
-        self.uv_coords = np.array([l.uv for l in mesh.uv_layers[0].data], dtype=np.float64) if self.has_uv else None
-        self.material_names = [m.name for m in mesh.materials if m]
-        self.poly_materials = [p.material_index for p in mesh.polygons]
+        self.backup_mesh = mesh.copy()
+        # Inventaire formel des données capturées pour audit
+        self.inventory: Dict[str, Any] = {
+            "mesh_name": mesh.name,
+            "vertex_count": len(mesh.vertices),
+            "edge_count": len(mesh.edges),
+            "face_count": len(mesh.polygons),
+            "uv_layers": [l.name for l in mesh.uv_layers],
+            "color_attributes": [c.name for c in mesh.color_attributes],
+            "material_count": len(mesh.materials),
+            "has_armature_weights": any(len(v.groups) > 0 for v in mesh.vertices),
+            "has_seams": any(e.use_seam for e in mesh.edges),
+            "attributes": [a.name for a in mesh.attributes]
+        }
 
     def restore(self, mesh: bpy.types.Mesh) -> bool:
-        """Restaure fidèlement les données du maillage à partir du snapshot."""
+        """Restaure intégralement le maillage dans son état exact pré-opération."""
+        if not self.backup_mesh:
+            return False
         try:
             bm = bmesh.new()
-            # Recréer les sommets
-            bm_verts = [bm.verts.new(co) for co in self.vertex_coords]
-            bm.verts.ensure_lookup_table()
-
-            # Recréer les faces
-            for poly_verts in self.polygon_vertices:
-                face_verts = [bm_verts[idx] for idx in poly_verts]
-                bm.faces.new(face_verts)
-            bm.faces.ensure_lookup_table()
-
-            # Recréer les arêtes isolées éventuelles qui n'étaient pas dans des faces
-            existing_edges = set((e.verts[0].index, e.verts[1].index) for e in bm.edges)
-            for v0_idx, v1_idx in self.edge_keys:
-                pair = tuple(sorted((v0_idx, v1_idx)))
-                if pair not in existing_edges:
-                    try:
-                        bm.edges.new((bm_verts[v0_idx], bm_verts[v1_idx]))
-                        existing_edges.add(pair)
-                    except Exception:
-                        pass
-
-            # Réassigner au maillage
+            bm.from_mesh(self.backup_mesh)
             bm.to_mesh(mesh)
             bm.free()
-
-            # Restaurer UVs si existants
-            if self.has_uv and self.uv_coords is not None and len(mesh.uv_layers) > 0:
-                uv_data = mesh.uv_layers[0].data
-                n_uvs = min(len(uv_data), len(self.uv_coords))
-                for i in range(n_uvs):
-                    uv_data[i].uv = self.uv_coords[i]
-
             mesh.update()
             return True
         except Exception:
             return False
+
+    def free(self):
+        """Libère le maillage de secours temporaire en mémoire Blender."""
+        if self.backup_mesh and self.backup_mesh.name in bpy.data.meshes:
+            try:
+                bpy.data.meshes.remove(self.backup_mesh)
+            except Exception:
+                pass
+            self.backup_mesh = None
+
+    def __del__(self):
+        self.free()
+
+
+def find_uv_discontinuity_vertices(bm: bmesh.types.BMesh) -> Set[bmesh.types.BMVert]:
+    """Identifie tous les sommets participant à une frontière ou discontinuité UV :
+    1. Arêtes avec coutures UV explicites (e.seam == True).
+    2. Sommets coïncidents dans l'espace 3D ayant des coordonnées UV distinctes
+       sur leurs boucles de faces (îlots UV séparés sans marquage seam préalable).
+    3. Arêtes partagées dont les faces adjacentes ont des coordonnées UV différentes.
+    """
+    discontinuity_verts: Set[bmesh.types.BMVert] = set()
+
+    # 1. Arêtes marquées explicitement seam
+    for e in bm.edges:
+        if getattr(e, "seam", False):
+            discontinuity_verts.add(e.verts[0])
+            discontinuity_verts.add(e.verts[1])
+
+    uv_layers = list(bm.loops.layers.uv.values())
+    if not uv_layers:
+        return discontinuity_verts
+
+    # 2. Arêtes partagées avec UV discontinus entre faces adjacentes
+    for e in bm.edges:
+        if len(e.link_faces) >= 2:
+            for uv_lay in uv_layers:
+                uv_map: Dict[bmesh.types.BMVert, Tuple[float, float]] = {}
+                is_edge_seam = False
+                for loop in e.link_loops:
+                    v = loop.vert
+                    uv_pt = (round(loop[uv_lay].uv.x, 5), round(loop[uv_lay].uv.y, 5))
+                    if v not in uv_map:
+                        uv_map[v] = uv_pt
+                    elif uv_map[v] != uv_pt:
+                        is_edge_seam = True
+                        break
+                if is_edge_seam:
+                    discontinuity_verts.add(e.verts[0])
+                    discontinuity_verts.add(e.verts[1])
+                    break
+
+    # 3. Sommets géométriquement coïncidents (doublons 3D) avec coordonnées UV distinctes
+    grid: Dict[Tuple[float, float, float], List[bmesh.types.BMVert]] = {}
+    for v in bm.verts:
+        key = (round(v.co.x, 4), round(v.co.y, 4), round(v.co.z, 4))
+        grid.setdefault(key, []).append(v)
+
+    for vlist in grid.values():
+        if len(vlist) > 1:
+            for uv_lay in uv_layers:
+                uv_sets = []
+                for v in vlist:
+                    s = {(round(l[uv_lay].uv.x, 5), round(l[uv_lay].uv.y, 5)) for l in v.link_loops}
+                    uv_sets.append(s)
+                # Si des sommets coïncidents ont des coordonnées UV non vides différentes
+                has_diff = any(s1 and s2 and s1 != s2 for i, s1 in enumerate(uv_sets) for s2 in uv_sets[i + 1:])
+                if has_diff:
+                    discontinuity_verts.update(vlist)
+                    break
+
+    return discontinuity_verts
 
 
 def clean_loose_vertices(bm: bmesh.types.BMesh) -> int:
@@ -107,14 +167,38 @@ def clean_wire_edges(bm: bmesh.types.BMesh) -> int:
 
 def clean_zero_area_faces(
     bm: bmesh.types.BMesh,
-    area_threshold: float = 1e-7
+    area_threshold: float = 1e-7,
+    protect_boundaries: bool = True
 ) -> int:
-    """Supprime les faces dégénérées d'aire nulle (<= area_threshold).
-    Préserve formellement les faces saines.
+    """Supprime les faces dégénérées d'aire nulle ou quasi-nulle.
+    Garantie : ne détruit jamais silencieusement une frontière utile ou une micro-structure saine.
+    - Supprime systématiquement les faces d'aire strictement nulle (<= 1e-9).
+    - Pour les faces entre 1e-9 et area_threshold : supprime uniquement si le ratio
+      isopérimétrique (p²/aire) révèle une aiguille écrasée (> 1000). Les micro-polygones
+      bien proportionnés sur des frontières ouvertes sont rigoureusement préservés.
     Retourne le nombre de faces éliminées.
     """
     bm.faces.ensure_lookup_table()
-    zero_faces = [f for f in bm.faces if f.calc_area() <= area_threshold]
+    zero_faces = []
+
+    for f in bm.faces:
+        area = f.calc_area()
+        if area <= 1e-9:
+            # Dégénérescence absolue (sommets colinéaires ou superposés)
+            zero_faces.append(f)
+        elif area <= area_threshold:
+            # Face de faible aire : tester si c'est une aiguille écrasée
+            perim = sum(e.calc_length() for e in f.edges)
+            isoperimetric_ratio = (perim * perim) / max(1e-12, area)
+            is_boundary = any(e.is_boundary for e in f.edges)
+
+            if is_boundary and protect_boundaries and isoperimetric_ratio < 1000.0:
+                # Structure ou biseau valide sur frontière ouverte : préserver
+                continue
+            elif isoperimetric_ratio >= 1000.0:
+                # Véritable aiguille aplatie dégénérée
+                zero_faces.append(f)
+
     count = len(zero_faces)
     if count > 0:
         bmesh.ops.delete(bm, geom=zero_faces, context='FACES')
@@ -130,29 +214,25 @@ def merge_duplicate_vertices(
     preserve_seams: bool = True
 ) -> int:
     """Fusionne les sommets géométriquement doublons (distance <= seuil explicite).
-    Ne fusionne jamais silencieusement :
+    Garanties :
     - Exige un seuil explicite passé en paramètre.
-    - Si preserve_seams est activé, ne fusionne pas les sommets délimitant des coutures UV (Sharp/Seams).
+    - Si preserve_seams est activé, protège formellement les sommets délimitant
+      des coutures UV explicites (seam) ET les sommets coïncidents possédant des coordonnées
+      UV distinctes (îlots UV séparés sans marquage seam).
+    - Préserve intégralement les discontinuités UV par boucle de face.
     Retourne le nombre de sommets fusionnés.
     """
     bm.verts.ensure_lookup_table()
     initial_verts = len(bm.verts)
 
-    # Identifier les sommets éligibles
     candidate_verts = list(bm.verts)
     if preserve_seams:
-        # Exclure les sommets incidentes à une arête de couture UV (seam)
-        seam_verts = set()
-        for e in bm.edges:
-            if getattr(e, "seam", False):
-                seam_verts.add(e.verts[0])
-                seam_verts.add(e.verts[1])
-        candidate_verts = [v for v in candidate_verts if v not in seam_verts]
+        discont_verts = find_uv_discontinuity_vertices(bm)
+        candidate_verts = [v for v in candidate_verts if v not in discont_verts]
 
     if not candidate_verts:
         return 0
 
-    # Exécution de bmesh.ops.find_doubles puis collapse
     try:
         doubles = bmesh.ops.find_doubles(
             bm,
@@ -166,7 +246,6 @@ def merge_duplicate_vertices(
             bm.edges.ensure_lookup_table()
             bm.faces.ensure_lookup_table()
     except Exception:
-        # Fallback classique bmesh remove_doubles
         bmesh.ops.remove_doubles(
             bm,
             verts=candidate_verts,
@@ -256,7 +335,7 @@ def execute_conservative_cleanup(
 
         # C. Faces d'aire nulle
         if clean_zero_f:
-            zf_removed = clean_zero_area_faces(bm, area_threshold=1e-7)
+            zf_removed = clean_zero_area_faces(bm, area_threshold=1e-7, protect_boundaries=True)
             result["elements_removed"]["zero_faces"] = zf_removed
             if zf_removed > 0:
                 result["logs"].append(f"{zf_removed} face(s) dégénérée(s) dissoute(s).")
@@ -273,16 +352,13 @@ def execute_conservative_cleanup(
                 result["logs"].append(f"{dm_count} sommet(s) doublon(s) fusionné(s) (seuil {doubles_distance*1000:.3f} mm).")
 
         # 3. Contrôle des invariants de sécurité géométrique
-        # Invariant 1 : Le maillage ne doit pas devenir vide s'il contenait des faces légitimes
         if counts_before["faces"] > 0 and len(bm.faces) == 0:
             raise ValueError("Invariant critique violé : toutes les faces ont été détruites par l'opération.")
 
-        # Invariant 2 : Pas de coordonnées NaN ou infinies
         for v in bm.verts:
             if not np.all(np.isfinite(v.co)):
                 raise ValueError("Invariant critique violé : coordonnées de sommet corrompues (NaN ou infinies).")
 
-        # Invariant 3 : L'opération conservatrice ne doit pas faire disparaître plus de faces que les faces nulles
         expected_min_faces = max(0, counts_before["faces"] - result["elements_removed"]["zero_faces"])
         if len(bm.faces) < expected_min_faces:
             raise ValueError(
@@ -294,6 +370,7 @@ def execute_conservative_cleanup(
         bm.to_mesh(mesh)
         bm.free()
         mesh.update()
+        snapshot.free()
 
         counts_after = {
             "vertices": len(mesh.vertices),
@@ -314,6 +391,7 @@ def execute_conservative_cleanup(
         # 5. Déclenchement du Rollback automatique en cas d'erreur ou d'invariant violé
         bm.free()
         ok_rollback = snapshot.restore(mesh)
+        snapshot.free()
         result["success"] = False
         result["rolled_back"] = ok_rollback
         result["error"] = str(e)

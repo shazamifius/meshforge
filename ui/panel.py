@@ -143,6 +143,26 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                 col_info.label(text="• Fusionne les doublons en protégeant les coutures UV.")
                 col_info.label(text="• Transaction sécurisée : rollback automatique garanti en cas d'erreur.")
 
+            # Action recommandée pour N-gones (Phase D2.2)
+            has_ngons = summary.get('ngons', 0) > 0
+            if has_ngons:
+                box_ngon = box_diag.box()
+                r_ngon_title = box_ngon.row()
+                r_ngon_title.label(text="Action recommandée N-gones :", icon='MESH_DATA')
+                r_ngon_title.label(text="[Risque Contrôlé]", icon='INFO')
+
+                col_cut = box_ngon.column(align=True)
+                col_cut.scale_y = 1.2
+                col_cut.operator("meshforge.cut_ngons", text=f"Découper les N-gones ({summary.get('ngons', 0)})", icon='MOD_TRIANGULATE')
+
+                box_ngon_info = box_ngon.box()
+                col_ngon_info = box_ngon_info.column(align=True)
+                col_ngon_info.scale_y = 0.8
+                col_ngon_info.label(text="• Triangulation Beauty équilibrée pour polygones convexes.")
+                col_ngon_info.label(text="• Ear-clipping orienté pour polygones concaves.")
+                col_ngon_info.label(text="• Cas ambigus/auto-intersectants isolés pour découpe manuelle.")
+                col_ngon_info.label(text="• Préservation intégrale UVs, matériaux et rollback automatique.")
+
             if defects:
                 box_diag.separator()
                 box_diag.prop(props, "active_defect_filter", text="Filtre")
