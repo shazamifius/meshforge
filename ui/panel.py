@@ -78,23 +78,18 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
             box_exp.label(text="• Idéal pour préparer un asset sans objectif tranché.")
 
         # ---------------------------------------------------------
-        # 3. ACTIONS PRINCIPALES
+        # 3. DIAGNOSTIC TOPOLOGIQUE (ACTION PRINCIPALE)
         # ---------------------------------------------------------
-        layout.label(text="2. Actions recommandées :", icon='PLAY')
+        box_step2 = layout.box()
+        box_step2.label(text="2. Diagnostic du maillage :", icon='VIEWZOOM')
 
-        # Bouton principal Nettoyage / Optimisation
-        col_act = layout.column(align=True)
-        col_act.scale_y = 1.3
-        col_act.operator("meshforge.optimize", text="Nettoyer rapidement le modèle", icon='CHECKMARK')
+        col_diag_btn = box_step2.column(align=True)
+        col_diag_btn.scale_y = 1.3
+        col_diag_btn.operator("meshforge.analyze_topology", text="Diagnostiquer la topologie", icon='COLOR')
 
-        row_diag = layout.row(align=True)
-        row_diag.scale_y = 1.1
-        row_diag.operator("meshforge.analyze_topology", text="Analyser la topologie", icon='VIEWZOOM')
-        row_diag.operator("meshforge.simplification", text="Réduire les triangles", icon='MOD_DECIM')
-
-        row_tools = layout.row(align=True)
-        row_tools.operator("meshforge.analyze", text="Rapport global", icon='TEXT')
-        row_tools.operator("meshforge.toggle_wireframe", text="Filaire", icon='SHADING_WIRE')
+        row_tools = box_step2.row(align=True)
+        row_tools.operator("meshforge.toggle_wireframe", text="Afficher le filaire", icon='SHADING_WIRE')
+        row_tools.operator("meshforge.analyze", text="Rapport métrique", icon='TEXT')
 
         # Bouton Restaurer si objet optimisé
         if "_MF_Optimized" in obj.name:
@@ -103,7 +98,7 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
             box_res.operator("meshforge.restore", text="Restaurer l'original", icon='RECOVER_LAST')
 
         # ---------------------------------------------------------
-        # 4. DIAGNOSTIC INTERACTIF & CODE COULEUR DES ANOMALIES
+        # 4. RÉSULTATS DU DIAGNOSTIC & ACTIONS CIBLÉES
         # ---------------------------------------------------------
         diag = get_active_diagnosis(obj.name)
         if diag and diag.get("valid"):
@@ -112,7 +107,7 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
             box_diag = layout.box()
             row_dh = box_diag.row()
-            row_dh.label(text="Diagnostic topologique :", icon='COLOR')
+            row_dh.label(text="Résultats du diagnostic :", icon='COLOR')
             row_dh.operator("meshforge.clear_defect_view", text="", icon='PANEL_CLOSE')
 
             # Pastilles sémantiques colorées
@@ -134,14 +129,14 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
                 col_clean = box_act.column(align=True)
                 col_clean.scale_y = 1.2
-                col_clean.operator("meshforge.conservative_clean", text="Nettoyage conservateur (Sûr)", icon='BRUSH_DATA')
+                col_clean.operator("meshforge.conservative_clean", text="Nettoyage conservateur sûr (sans décimation)", icon='BRUSH_DATA')
 
                 box_info = box_act.box()
                 col_info = box_info.column(align=True)
                 col_info.scale_y = 0.8
-                col_info.label(text="• Supprime orphelins, arêtes sans face et faces nulles.")
+                col_info.label(text="• Supprime uniquement orphelins, arêtes sans face et faces nulles.")
                 col_info.label(text="• Fusionne les doublons en protégeant les coutures UV.")
-                col_info.label(text="• Transaction sécurisée : rollback automatique garanti en cas d'erreur.")
+                col_info.label(text="• Aucune décimation de surface : géométrie utile 100% préservée.")
 
             # Action recommandée pour N-gones (Phase D2.2)
             has_ngons = summary.get('ngons', 0) > 0
@@ -195,7 +190,25 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                 box_diag.label(text="Aucune anomalie topologique critique détectée !", icon='CHECKMARK')
 
         # ---------------------------------------------------------
-        # 5. MODE EXPERT / RÉGLAGES AVANCÉS REPLIABLE
+        # 5. RÉDUCTION DE TRIANGLES / DÉCIMATION (OPTIONNEL)
+        # ---------------------------------------------------------
+        box_sim = layout.box()
+        box_sim.label(text="3. Réduction de polygones (Optionnel) :", icon='MOD_DECIM')
+
+        col_s = box_sim.column(align=True)
+        col_s.prop(props, "simplification_percentage", text="Pourcentage cible (%)", slider=True)
+
+        col_s_btn = box_sim.column(align=True)
+        col_s_btn.scale_y = 1.2
+        col_s_btn.operator("meshforge.simplification", text="Réduire les triangles (Décimateur natif)", icon='MOD_DECIM')
+
+        col_s_warn = box_sim.column(align=True)
+        col_s_warn.scale_y = 0.8
+        col_s_warn.label(text="⚠️ Moteur natif Decimate : adapté aux décors rigides.", icon='ERROR')
+        col_s_warn.label(text="Sur surfaces sculptées/courbées, risque d'artefacts d'ombrage noirs.")
+
+        # ---------------------------------------------------------
+        # 6. MODE EXPERT / RÉGLAGES AVANCÉS REPLIABLE
         # ---------------------------------------------------------
         box_exp_toggle = layout.box()
         box_exp_toggle.prop(
@@ -215,6 +228,10 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                 row_warn = box_flow.row()
                 row_warn.alert = True
                 row_warn.prop(props, "destructive_mode", text="Mode destructif direct !")
+
+            box_flow.separator()
+            box_flow.label(text="Pipeline combiné complet :", icon='MODIFIER')
+            box_flow.operator("meshforge.optimize", text="Exécuter tout le pipeline (Réparation + Décimation)", icon='PLAY')
 
 
 class VIEW3D_PT_meshforge_repair(VIEW3D_PT_meshforge_base, bpy.types.Panel):
