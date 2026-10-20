@@ -8,3 +8,4 @@ type = "add-on"
 tags = ["Mesh", "Modeling"]
 blender_version_min = "4.2.0"
 license = ["SPDX:GPL-2.0-or-later"]
+website = "https://github.com/shazamifius/meshforge"

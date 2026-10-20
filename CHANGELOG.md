@@ -2,6 +2,17 @@
 
 Toutes les modifications notables de ce projet seront consignées dans ce document.
 
+## [Unreleased] - Mises à jour autonomes GitHub et diagnostic de haute précision
+
+### Ajouté
+- Système complet de mise à jour automatique depuis GitHub (`core/updater.py`, `operators/updater_ops.py`) lié au dépôt officiel `shazamifius/meshforge`.
+- Détection asynchrone et non-bloquante des nouvelles versions sur GitHub Releases et tags.
+- Téléchargement, validation d'archive et mise à jour en un clic directement depuis les Préférences Blender ou le panneau N-Panel.
+- Notification visuelle et badge d'alerte en cas de version disponible dans la vue 3D.
+- Granularité stricte du marquage intentionnel (`base_id:item_id`), partition des composantes connexes et validation par métrologie spatiale.
+- Dissociation entre géométrie intentionnelle et conformité aux objectifs stricts (ex. `EXPORT_PREP`).
+- Suite de tests unitaires dédiés (`tests/test_updater.py`, `tests/test_granular_and_cache_coherence.py`).
+
 ## [0.2.0] - Phase B : Sécurité, diagnostics renforcés et traçabilité
 
 ### Ajouté

@@ -12,6 +12,7 @@ import bpy
 
 from ..operators.topology_inspect import get_active_diagnosis, check_diagnosis_staleness
 from ..core.structured_diagnosis import PROFILES, PROFILE_ALIAS, CATEGORIES
+from ..core.updater import get_update_state, get_current_version_str
 
 
 class VIEW3D_PT_meshforge_base:
@@ -31,6 +32,15 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         props = context.scene.meshforge_settings
         obj = context.active_object
 
+        # Notification de mise à jour si disponible
+        update_state = get_update_state()
+        if update_state.get("has_update"):
+            box_up = layout.box()
+            box_up.alert = True
+            row_up = box_up.row(align=True)
+            row_up.label(text=f"Mise à jour disponible : v{update_state.get('latest_version')}", icon='FILE_REFRESH')
+            row_up.operator("meshforge.install_update", text="Mettre à jour", icon='IMPORT')
+
         # ---------------------------------------------------------
         # 1. OBJET SÉLECTIONNÉ & STATISTIQUES IMMÉDIATES
         # ---------------------------------------------------------
@@ -38,6 +48,12 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         if not obj or obj.type != 'MESH':
             box_obj.label(text="Aucun maillage sélectionné", icon='INFO')
             box_obj.label(text="Sélectionnez un objet 3D pour commencer.", icon='FORWARD')
+
+            row_foot = layout.row(align=True)
+            row_foot.alignment = 'RIGHT'
+            row_foot.label(text=f"MeshForge v{get_current_version_str()}", icon='MESH_DATA')
+            row_foot.operator("meshforge.check_update", text="Vérifier màj", icon='FILE_REFRESH')
+            row_foot.operator("meshforge.open_github", text="", icon='URL')
             return
 
         mesh = obj.data
@@ -673,6 +689,15 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
             box_flow.separator()
             box_flow.label(text="Pipeline combiné complet :", icon='MODIFIER')
             box_flow.operator("meshforge.optimize", text="Exécuter tout le pipeline (Réparation + Décimation)", icon='PLAY')
+
+        # ---------------------------------------------------------
+        # 6. PIED DE PAGE & VÉRIFICATION DE MISE À JOUR
+        # ---------------------------------------------------------
+        row_foot = layout.row(align=True)
+        row_foot.alignment = 'RIGHT'
+        row_foot.label(text=f"MeshForge v{get_current_version_str()}", icon='MESH_DATA')
+        row_foot.operator("meshforge.check_update", text="Vérifier màj", icon='FILE_REFRESH')
+        row_foot.operator("meshforge.open_github", text="", icon='URL')
 
 
 class VIEW3D_PT_meshforge_repair(VIEW3D_PT_meshforge_base, bpy.types.Panel):

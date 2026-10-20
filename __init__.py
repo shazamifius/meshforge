@@ -10,7 +10,7 @@ bl_info = {
     "location": "View3D > Sidebar (N) > MeshForge",
     "description": "Analyse, réparation, nettoyage et simplification intelligente des maillages",
     "warning": "",
-    "doc_url": "",
+    "doc_url": "https://github.com/shazamifius/meshforge",
     "category": "Mesh",
 }
 
@@ -18,6 +18,18 @@ from .preferences import register_preferences, unregister_preferences
 from .properties import register_properties, unregister_properties
 from .operators import register_operators, unregister_operators
 from .ui import register_ui, unregister_ui
+
+
+def _check_updates_delayed():
+    try:
+        import bpy
+        from .core.updater import check_for_updates_async
+        prefs = bpy.context.preferences.addons.get(__package__ or "meshforge")
+        if prefs and getattr(prefs.preferences, "check_updates_on_startup", True):
+            check_for_updates_async()
+    except Exception:
+        pass
+    return None
 
 
 def register():
@@ -34,6 +46,14 @@ def register():
 
         register_ui()
         registered_modules.append(unregister_ui)
+
+        # Lancement différé et silencieux de la vérification de mise à jour au démarrage
+        try:
+            import bpy
+            if hasattr(bpy.app, "timers") and not getattr(bpy.app, "background", False):
+                bpy.app.timers.register(_check_updates_delayed, first_interval=3.0)
+        except Exception:
+            pass
     except Exception:
         # Rollback automatique ordonné en cas d'échec partiel
         for rollback_fn in reversed(registered_modules):

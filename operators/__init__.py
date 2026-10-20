@@ -29,6 +29,11 @@ from .internal_walls_op import (
     MESHFORGE_OT_select_internal_walls,
     MESHFORGE_OT_remove_internal_walls,
 )
+from .updater_ops import (
+    MESHFORGE_OT_check_update,
+    MESHFORGE_OT_install_update,
+    MESHFORGE_OT_open_github,
+)
 
 classes = (
     MESHFORGE_OT_optimize,
@@ -42,6 +47,9 @@ classes = (
     MESHFORGE_OT_quadrangulate,
     MESHFORGE_OT_select_internal_walls,
     MESHFORGE_OT_remove_internal_walls,
+    MESHFORGE_OT_check_update,
+    MESHFORGE_OT_install_update,
+    MESHFORGE_OT_open_github,
     MESHFORGE_OT_repair,
     MESHFORGE_OT_manifold,
     MESHFORGE_OT_dissolve,
