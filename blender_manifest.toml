@@ -1,0 +1,10 @@
+schema_version = "1.0.0"
+id = "meshforge"
+version = "0.1.0"
+name = "MeshForge"
+tagline = "Analyse, réparation, nettoyage et simplification intelligente des maillages 3D"
+maintainer = "MeshForge Team"
+type = "add-on"
+tags = ["Mesh", "Modeling"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-2.0-or-later"]
