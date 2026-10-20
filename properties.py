@@ -34,6 +34,25 @@ def _on_profile_mode_changed(self, context):
 
 class MeshForgeSettings(bpy.types.PropertyGroup):
     # --- Assistant intelligent de préparation d'assets (Phase D & UX) ---
+    ui_section_clean_expanded: BoolProperty(
+        name="Section CLEAN",
+        description="Déploie ou replie la section principale CLEAN (Nettoyer et réparer)",
+        default=True
+    )
+    ui_section_decimate_expanded: BoolProperty(
+        name="Section DECIMATE",
+        description="Déploie ou replie la section secondaire DECIMATE (Réduire le maillage)",
+        default=False
+    )
+    decimate_method: EnumProperty(
+        name="Méthode de réduction",
+        description="Choisit la méthode de décimation la plus adaptée au type de surface",
+        items=[
+            ('COLLAPSE', "Contraction d'arêtes (Surfaces courbées/organiques)", "Algorithme standard QEM par contraction progressive d'arêtes. Idéal pour formes sculptées et organiques.", 'MOD_DECIM', 0),
+            ('DISSOLVE', "Dissolution coplanaire (Pièces planes/surfaces dures)", "Suppression des arêtes coplanaires sous un angle donné. Spécialisé pour pièces CAD, hard-surface et zones plates.", 'SNAP_FACE', 1),
+        ],
+        default='COLLAPSE'
+    )
     asset_target_mode: EnumProperty(
         name="Objectif de l'Asset",
         description="Définit l'usage prévu pour adapter le diagnostic et les recommandations sans recalcul lourd",
@@ -544,6 +563,32 @@ class MeshForgeSettings(bpy.types.PropertyGroup):
     last_reduction: FloatProperty(default=0.0)
     last_result_obj_name: StringProperty(default="")
     last_logs: StringProperty(default="")
+    last_deviation_measured: BoolProperty(
+        name="Déviation mesurée",
+        description="Indique si une mesure métrologique de déviation a été réellement calculée",
+        default=False
+    )
+    last_max_hausdorff: FloatProperty(
+        name="Écart Hausdorff max (m)",
+        description="Distance de Hausdorff maximale mesurée entre le maillage source et le résultat",
+        default=0.0,
+        precision=6,
+        unit='LENGTH'
+    )
+    last_mean_deviation: FloatProperty(
+        name="Écart moyen (m)",
+        description="Distance moyenne de surface mesurée",
+        default=0.0,
+        precision=6,
+        unit='LENGTH'
+    )
+    last_max_normal_angle: FloatProperty(
+        name="Déviation normales max (°)",
+        description="Déviation angulaire maximale des normales de surface",
+        default=0.0,
+        precision=2,
+        unit='ROTATION'
+    )
 
 
 def register_properties():

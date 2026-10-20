@@ -69,6 +69,18 @@ class MESHFORGE_OT_optimize(bpy.types.Operator):
         props.last_tris_after = s_final.get("estimated_triangles", 0)
         props.last_reduction = report.get("reduction_percentage", 0.0)
 
+        geom_val = report.get("geometric_validation", {})
+        if geom_val and geom_val.get("valid"):
+            props.last_deviation_measured = True
+            props.last_max_hausdorff = geom_val.get("hausdorff_distance", 0.0)
+            props.last_mean_deviation = geom_val.get("mean_distance", 0.0)
+            props.last_max_normal_angle = geom_val.get("max_normal_deviation_deg", 0.0)
+        else:
+            props.last_deviation_measured = False
+            props.last_max_hausdorff = 0.0
+            props.last_mean_deviation = 0.0
+            props.last_max_normal_angle = 0.0
+
         # Concaténation des logs résumés
         all_logs = report.get("logs", [])
         props.last_logs = "\n".join(all_logs[-6:]) if all_logs else "Aucune modification nécessaire."
