@@ -97,7 +97,7 @@ class MESHFORGE_OT_dissolve(bpy.types.Operator):
         source_obj = context.active_object
 
         target_obj = source_obj
-        if getattr(props, "create_new_object", True):
+        if getattr(props, "create_new_object", True) and not source_obj.name.endswith("_MF_Optimized"):
             target_obj = duplicate_object_non_destructive(source_obj)
             if getattr(props, "hide_original", True):
                 source_obj.hide_set(True)
@@ -209,7 +209,7 @@ class MESHFORGE_OT_simplification(bpy.types.Operator):
         source_obj = context.active_object
 
         target_obj = source_obj
-        if getattr(props, "create_new_object", True):
+        if getattr(props, "create_new_object", True) and not source_obj.name.endswith("_MF_Optimized"):
             target_obj = duplicate_object_non_destructive(source_obj)
             if getattr(props, "hide_original", True):
                 source_obj.hide_set(True)

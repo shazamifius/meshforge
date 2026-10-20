@@ -20,10 +20,34 @@ from .simplification import execute_simplification
 
 def duplicate_object_non_destructive(source_obj: bpy.types.Object, suffix: str = "_MF_Optimized") -> bpy.types.Object:
     """Duplique l'objet et ses données de maillage de manière strictement indépendante."""
+    # Si l'objet est déjà un résultat optimisé non-destructif, réutiliser cet objet
+    if source_obj.name.endswith(suffix):
+        return source_obj
+
     new_mesh = source_obj.data.copy()
     new_obj = source_obj.copy()
     new_obj.data = new_mesh
-    new_obj.name = f"{source_obj.name}{suffix}"
+
+    # Retrouver l'original racine pour éviter l'accumulation de suffixes (_MF_Optimized.001, etc.)
+    root_source_name = source_obj.get("_mf_source_object", "")
+    if not root_source_name or root_source_name not in bpy.data.objects:
+        root_source_name = source_obj.name.split(suffix)[0]
+        if root_source_name not in bpy.data.objects:
+            root_source_name = source_obj.name
+
+    new_obj["_mf_source_object"] = root_source_name
+    base_target_name = f"{root_source_name}{suffix}"
+
+    # Si un ancien résultat portant ce nom existe déjà et n'est pas l'objet source courant,
+    # le remplacer proprement pour éviter la prolifération d'objets intermédiaires
+    existing = bpy.data.objects.get(base_target_name)
+    if existing and existing != source_obj:
+        old_mesh = existing.data
+        bpy.data.objects.remove(existing, do_unlink=True)
+        if old_mesh and old_mesh.users == 0:
+            bpy.data.meshes.remove(old_mesh)
+
+    new_obj.name = base_target_name
 
     for coll in source_obj.users_collection:
         coll.objects.link(new_obj)

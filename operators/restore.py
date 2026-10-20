@@ -26,7 +26,9 @@ class MESHFORGE_OT_restore(bpy.types.Operator):
             self.report({'WARNING'}, "MeshForge : La restauration requiert le mode Objet. Veuillez repasser en mode Objet (Touche Tab).")
             return {'CANCELLED'}
 
-        orig_name = current_obj.name.replace("_MF_Optimized", "")
+        orig_name = current_obj.get("_mf_source_object", "")
+        if not orig_name or orig_name not in bpy.data.objects:
+            orig_name = current_obj.name.split("_MF_Optimized")[0]
 
         # Retrouver l'objet original
         orig_obj = bpy.data.objects.get(orig_name)

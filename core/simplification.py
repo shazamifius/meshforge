@@ -280,12 +280,12 @@ def execute_simplification(
         )
         results["log"].append(stop_reason)
 
-        # 6. Revalidation formelle post-réduction
-        if ref_obj:
+        # 6. Revalidation formelle post-réduction (uniquement si la tolérance géométrique est activée)
+        if ref_obj and use_tolerance:
             val = evaluate_geometric_deviation(ref_obj, obj, sample_count=10000, seed=42)
             results["geometric_validation"] = val
 
-            if use_tolerance and val.get("valid"):
+            if val.get("valid"):
                 d_p99 = val.get("distance_p99", 0.0)
                 if d_p99 > effective_max_tol * 1.05:
                     results["tolerance_respected"] = False
