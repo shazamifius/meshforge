@@ -29,12 +29,18 @@ def duplicate_object_non_destructive(source_obj: bpy.types.Object, suffix: str =
     new_obj.data = new_mesh
 
     # Retrouver l'original racine pour éviter l'accumulation de suffixes (_MF_Optimized.001, etc.)
-    root_source_name = source_obj.get("_mf_source_object", "")
-    if not root_source_name or root_source_name not in bpy.data.objects:
-        root_source_name = source_obj.name.split(suffix)[0]
-        if root_source_name not in bpy.data.objects:
-            root_source_name = source_obj.name
+    root_source_obj = source_obj.get("_mf_source_ptr", None)
+    if not root_source_obj or root_source_obj.name not in bpy.data.objects:
+        root_source_name = source_obj.get("_mf_source_object", "")
+        if not root_source_name or root_source_name not in bpy.data.objects:
+            root_source_name = source_obj.name.split(suffix)[0]
+            if root_source_name not in bpy.data.objects:
+                root_source_name = source_obj.name
+        root_source_obj = bpy.data.objects.get(root_source_name, source_obj)
+    else:
+        root_source_name = root_source_obj.name
 
+    new_obj["_mf_source_ptr"] = root_source_obj
     new_obj["_mf_source_object"] = root_source_name
     base_target_name = f"{root_source_name}{suffix}"
 

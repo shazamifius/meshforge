@@ -115,18 +115,30 @@ class MESHFORGE_OT_dissolve(bpy.types.Operator):
                 )
                 return {'CANCELLED'}
 
-        # 2. Détection des risques identifiables de dissolution agressive (Point 2 de Sécurisation UX8)
+        # 2. Détection des risques identifiables de dissolution agressive (Point 2 & 5)
         mesh_has_seams = any(e.use_seam for e in source_obj.data.edges)
         mesh_has_sharp = any(e.use_edge_sharp for e in source_obj.data.edges)
+        mesh_has_multiple_mats = len(source_obj.material_slots) > 1
         profile = getattr(props, "asset_target_mode", "GENERAL")
+
+        # Détection de courbure géométrique (faces adjacentes non coplanaires)
+        mesh_has_curvature = False
+        if len(source_obj.data.polygons) > 1:
+            poly_sample = source_obj.data.polygons[:min(30, len(source_obj.data.polygons))]
+            n0 = poly_sample[0].normal
+            mesh_has_curvature = any(p.normal.dot(n0) < 0.99 for p in poly_sample[1:])
 
         risk_reasons = []
         if mesh_has_seams and not getattr(props, "preserve_seams", True):
             risk_reasons.append("Coutures UV non préservées (risque de déchirure de texture)")
         if mesh_has_sharp and not getattr(props, "preserve_sharp", True):
             risk_reasons.append("Arêtes vives non préservées (risque d'altération d'ombrage)")
+        if mesh_has_multiple_mats and not getattr(props, "preserve_materials", True):
+            risk_reasons.append("Frontières de matériaux non préservées (risque de fusion de shaders)")
         if getattr(props, "dissolve_mode", "BALANCED") == 'AGGRESSIVE' and profile in ('GAME_ASSET', 'DEFORMABLE_CHAR'):
             risk_reasons.append(f"Dissolution agressive sur profil sensible aux N-gones ({profile})")
+        if mesh_has_curvature and getattr(props, "dissolve_angle", 5.0) >= 15.0:
+            risk_reasons.append(f"Angle de dissolution élevé ({props.dissolve_angle:.1f}°) sur surface courbée (risque d'aplatissement)")
 
         if risk_reasons and not getattr(props, "confirm_aggressive_dissolve", False):
             risks_text = " ; ".join(risk_reasons)
@@ -138,33 +150,50 @@ class MESHFORGE_OT_dissolve(bpy.types.Operator):
             return {'CANCELLED'}
 
         target_obj = source_obj
+        created_new = False
         if getattr(props, "create_new_object", True) and not source_obj.name.endswith("_MF_Optimized"):
             target_obj = duplicate_object_non_destructive(source_obj)
-            if getattr(props, "hide_original", True):
+            created_new = True
+
+        try:
+            if has_shape_keys and target_obj != source_obj:
+                if target_obj.data.shape_keys:
+                    target_obj.shape_key_clear()
+
+            m_in = target_obj.data
+            v_before = len(m_in.vertices)
+            e_before = len(m_in.edges)
+            f_before = len(m_in.polygons)
+            try:
+                m_in.calc_loop_triangles()
+                t_before = len(m_in.loop_triangles) if hasattr(m_in, "loop_triangles") else sum(max(0, len(p.vertices) - 2) for p in m_in.polygons)
+            except Exception:
+                t_before = sum(max(0, len(p.vertices) - 2) for p in m_in.polygons)
+
+            res = execute_dissolve(target_obj, props)
+            dt = time.perf_counter() - t0
+
+            if res.get("status") == "ERROR":
+                err_msg = " | ".join(res.get("log", ["Erreur lors de la dissolution."]))
+                raise RuntimeError(err_msg)
+
+            # Opération réussie : masquer l'original et activer la copie
+            if created_new and getattr(props, "hide_original", True):
                 source_obj.hide_set(True)
             bpy.context.view_layer.objects.active = target_obj
             target_obj.select_set(True)
 
-        if has_shape_keys and target_obj != source_obj:
-            if target_obj.data.shape_keys:
-                target_obj.shape_key_clear()
-
-        m_in = target_obj.data
-        v_before = len(m_in.vertices)
-        e_before = len(m_in.edges)
-        f_before = len(m_in.polygons)
-        try:
-            m_in.calc_loop_triangles()
-            t_before = len(m_in.loop_triangles) if hasattr(m_in, "loop_triangles") else sum(max(0, len(p.vertices) - 2) for p in m_in.polygons)
-        except Exception:
-            t_before = sum(max(0, len(p.vertices) - 2) for p in m_in.polygons)
-
-        res = execute_dissolve(target_obj, props)
-        dt = time.perf_counter() - t0
-
-        if res.get("status") == "ERROR":
-            err_msg = " | ".join(res.get("log", ["Erreur lors de la dissolution."]))
-            self.report({'ERROR'}, f"MeshForge Dissolve : {err_msg}")
+        except Exception as e:
+            # Rollback atomique en cas d'erreur ou d'exception (P0)
+            if created_new and target_obj != source_obj:
+                mesh_to_delete = target_obj.data
+                bpy.data.objects.remove(target_obj, do_unlink=True)
+                if mesh_to_delete and mesh_to_delete.users == 0:
+                    bpy.data.meshes.remove(mesh_to_delete)
+            source_obj.hide_set(False)
+            bpy.context.view_layer.objects.active = source_obj
+            source_obj.select_set(True)
+            self.report({'ERROR'}, f"MeshForge Dissolve : {e}")
             return {'CANCELLED'}
 
         m_out = target_obj.data
@@ -273,34 +302,51 @@ class MESHFORGE_OT_simplification(bpy.types.Operator):
                 return {'CANCELLED'}
 
         target_obj = source_obj
+        created_new = False
         if getattr(props, "create_new_object", True) and not source_obj.name.endswith("_MF_Optimized"):
             target_obj = duplicate_object_non_destructive(source_obj)
-            if getattr(props, "hide_original", True):
+            created_new = True
+
+        try:
+            if has_shape_keys and target_obj != source_obj:
+                if target_obj.data.shape_keys:
+                    target_obj.shape_key_clear()
+
+            m_in = target_obj.data
+            v_before = len(m_in.vertices)
+            e_before = len(m_in.edges)
+            f_before = len(m_in.polygons)
+            try:
+                m_in.calc_loop_triangles()
+                t_before = len(m_in.loop_triangles) if hasattr(m_in, "loop_triangles") else sum(max(0, len(p.vertices) - 2) for p in m_in.polygons)
+            except Exception:
+                t_before = sum(max(0, len(p.vertices) - 2) for p in m_in.polygons)
+
+            ref_obj = source_obj if target_obj != source_obj else None
+            res = execute_simplification(target_obj, props, orig_reference_obj=ref_obj)
+            dt = time.perf_counter() - t0
+
+            if res.get("status") == "ERROR":
+                err_msg = " | ".join(res.get("log", ["Erreur lors de la simplification."]))
+                raise RuntimeError(err_msg)
+
+            # Opération réussie : masquer l'original et activer la copie
+            if created_new and getattr(props, "hide_original", True):
                 source_obj.hide_set(True)
             bpy.context.view_layer.objects.active = target_obj
             target_obj.select_set(True)
 
-        if has_shape_keys and target_obj != source_obj:
-            if target_obj.data.shape_keys:
-                target_obj.shape_key_clear()
-
-        m_in = target_obj.data
-        v_before = len(m_in.vertices)
-        e_before = len(m_in.edges)
-        f_before = len(m_in.polygons)
-        try:
-            m_in.calc_loop_triangles()
-            t_before = len(m_in.loop_triangles) if hasattr(m_in, "loop_triangles") else sum(max(0, len(p.vertices) - 2) for p in m_in.polygons)
-        except Exception:
-            t_before = sum(max(0, len(p.vertices) - 2) for p in m_in.polygons)
-
-        ref_obj = source_obj if target_obj != source_obj else None
-        res = execute_simplification(target_obj, props, orig_reference_obj=ref_obj)
-        dt = time.perf_counter() - t0
-
-        if res.get("status") == "ERROR":
-            err_msg = " | ".join(res.get("log", ["Erreur lors de la simplification."]))
-            self.report({'ERROR'}, f"MeshForge Simplification : {err_msg}")
+        except Exception as e:
+            # Rollback atomique en cas d'erreur ou d'exception (P0)
+            if created_new and target_obj != source_obj:
+                mesh_to_delete = target_obj.data
+                bpy.data.objects.remove(target_obj, do_unlink=True)
+                if mesh_to_delete and mesh_to_delete.users == 0:
+                    bpy.data.meshes.remove(mesh_to_delete)
+            source_obj.hide_set(False)
+            bpy.context.view_layer.objects.active = source_obj
+            source_obj.select_set(True)
+            self.report({'ERROR'}, f"MeshForge Simplification : {e}")
             return {'CANCELLED'}
 
         m_out = target_obj.data

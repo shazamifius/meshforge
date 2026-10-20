@@ -469,13 +469,24 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
             if props.decimate_method == 'DISSOLVE':
                 mesh_has_seams = any(e.use_seam for e in mesh.edges)
                 mesh_has_sharp = any(e.use_edge_sharp for e in mesh.edges)
+                mesh_has_multiple_mats = len(obj.material_slots) > 1
+                mesh_has_curvature = False
+                if len(mesh.polygons) > 1:
+                    poly_sample = mesh.polygons[:min(30, len(mesh.polygons))]
+                    n0 = poly_sample[0].normal
+                    mesh_has_curvature = any(p.normal.dot(n0) < 0.99 for p in poly_sample[1:])
+
                 dissolve_risks = []
                 if mesh_has_seams and not props.preserve_seams:
                     dissolve_risks.append("Coutures UV non préservées (risque de distorsion)")
                 if mesh_has_sharp and not props.preserve_sharp:
                     dissolve_risks.append("Arêtes vives non préservées (risque d'altération d'ombrage)")
+                if mesh_has_multiple_mats and not props.preserve_materials:
+                    dissolve_risks.append("Frontières de matériaux non préservées (risque de fusion)")
                 if props.dissolve_mode == 'AGGRESSIVE' and resolved_profile in ('GAME_ASSET', 'DEFORMABLE_CHAR'):
                     dissolve_risks.append(f"Dissolution agressive sur profil sensible ({resolved_profile})")
+                if mesh_has_curvature and props.dissolve_angle >= 15.0:
+                    dissolve_risks.append(f"Angle élevé ({props.dissolve_angle:.1f}°) sur surface courbée")
 
                 if dissolve_risks:
                     box_rk = box_sec.box()

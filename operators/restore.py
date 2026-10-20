@@ -26,16 +26,27 @@ class MESHFORGE_OT_restore(bpy.types.Operator):
             self.report({'WARNING'}, "MeshForge : La restauration requiert le mode Objet. Veuillez repasser en mode Objet (Touche Tab).")
             return {'CANCELLED'}
 
-        orig_name = current_obj.get("_mf_source_object", "")
-        if not orig_name or orig_name not in bpy.data.objects:
-            orig_name = current_obj.name.split("_MF_Optimized")[0]
+        orig_obj = current_obj.get("_mf_source_ptr")
+        if not orig_obj or orig_obj.name not in bpy.data.objects:
+            orig_name = current_obj.get("_mf_source_object", "")
+            if not orig_name or orig_name not in bpy.data.objects:
+                orig_name = current_obj.name.split("_MF_Optimized")[0]
+            orig_obj = bpy.data.objects.get(orig_name)
+        else:
+            orig_name = orig_obj.name
 
-        # Retrouver l'objet original
-        orig_obj = bpy.data.objects.get(orig_name)
-        if orig_obj:
-            orig_obj.hide_set(False)
-            context.view_layer.objects.active = orig_obj
-            orig_obj.select_set(True)
+        if not orig_obj or orig_obj.name not in bpy.data.objects:
+            self.report(
+                {'WARNING'},
+                f"MeshForge : L'objet source original ('{orig_name}') est introuvable (supprimé). "
+                "Le résultat optimisé est conservé pour éviter toute perte de géométrie."
+            )
+            return {'CANCELLED'}
+
+        # Retrouver et restaurer l'objet original
+        orig_obj.hide_set(False)
+        context.view_layer.objects.active = orig_obj
+        orig_obj.select_set(True)
 
         # Supprimer le résultat courant
         mesh_to_delete = current_obj.data
