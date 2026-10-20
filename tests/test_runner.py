@@ -22,6 +22,7 @@ from tests.test_phase_d2_conservative import TestMeshForgePhaseD2Conservative
 from tests.test_phase_d2_ngon_cut import TestMeshForgePhaseD2_2
 from tests.test_real_world_ux import TestRealWorldUX
 from tests.test_ux6_fixes import TestUX6Fixes
+from tests.test_ux7_inspection import TestMeshForgePhaseUX7
 
 if __name__ == "__main__":
     suite = unittest.TestSuite()
@@ -35,6 +36,7 @@ if __name__ == "__main__":
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseD2_2))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestRealWorldUX))
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestUX6Fixes))
+    suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseUX7))
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     sys.exit(0 if result.wasSuccessful() else 1)

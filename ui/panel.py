@@ -12,7 +12,7 @@ Organise les contrôles selon le parcours guidé utilisateur (Phases UX1 à UX5)
 from __future__ import annotations
 import bpy
 
-from ..operators.topology_inspect import get_active_diagnosis
+from ..operators.topology_inspect import get_active_diagnosis, check_diagnosis_staleness
 from ..core.structured_diagnosis import PROFILES, PROFILE_ALIAS, CATEGORIES
 
 
@@ -111,15 +111,58 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         col_diag_btn.scale_y = 1.3
         col_diag_btn.operator("meshforge.analyze_topology", text="Analyser le maillage", icon='VIEWZOOM')
 
+        is_wire = getattr(obj, "show_wire", False)
         row_tools = box_step2.row(align=True)
-        row_tools.operator("meshforge.toggle_wireframe", text="Afficher le filaire", icon='SHADING_WIRE')
+        row_tools.operator(
+            "meshforge.toggle_wireframe",
+            text="Masquer le filaire" if is_wire else "Afficher le filaire",
+            icon='CHECKBOX_HLT' if is_wire else 'SHADING_WIRE',
+            depress=is_wire
+        )
         row_tools.operator("meshforge.clear_defect_view", text="Effacer l'inspection", icon='PANEL_CLOSE')
+
+        # Légende des couleurs sémantiques (UX7.4)
+        row_leg = box_step2.row(align=True)
+        row_leg.prop(
+            props,
+            "show_color_legend",
+            text="Légende des couleurs" if not props.show_color_legend else "Masquer la légende",
+            icon='TRIA_DOWN' if props.show_color_legend else 'TRIA_RIGHT'
+        )
+        if props.show_color_legend:
+            box_leg = box_step2.box()
+            box_leg.scale_y = 0.85
+            col_leg = box_leg.column(align=True)
+            col_leg.label(text="Palette de diagnostic sémantique :", icon='COLOR')
+            col_leg.label(text="• Rouge : Dégénérescences (aire nulle, micro-arêtes) & Non-manifold")
+            col_leg.label(text="• Orange : N-gones (polygones > 4 côtés, concaves ou convexes)")
+            col_leg.label(text="• Jaune : Risques de déformation (pôles complexes valence >= 6)")
+            col_leg.label(text="• Bleu : Triangles suspects (aiguilles étirées ou au milieu de quads)")
+            col_leg.label(text="• Violet : Éléments isolés (orphelins, arêtes filaires, îlots disjoints)")
+            col_leg.label(text="• Gris : Géométrie saine de référence")
 
         # ---------------------------------------------------------
         # 4. ÉTAPE 3 : RÉSULTATS & SANTÉ GLOBALE
         # ---------------------------------------------------------
         diag = get_active_diagnosis(obj.name)
-        if diag and diag.get("valid"):
+        is_stale, stale_reason = check_diagnosis_staleness(obj)
+
+        # Alerte péremption si la géométrie a changé depuis l'analyse (UX7.2)
+        if diag and is_stale:
+            box_stale = layout.box()
+            box_stale.alert = True
+            row_st = box_stale.row(align=True)
+            row_st.label(text="Diagnostic à actualiser", icon='ERROR')
+            col_st = box_stale.column(align=True)
+            col_st.scale_y = 0.85
+            col_st.label(text="La géométrie a été modifiée depuis la dernière analyse.")
+            if stale_reason:
+                col_st.label(text=f"Motif : {stale_reason}")
+            col_act_st = box_stale.column(align=True)
+            col_act_st.scale_y = 1.2
+            col_act_st.operator("meshforge.analyze_topology", text="Actualiser le diagnostic maintenant", icon='FILE_REFRESH')
+
+        if diag and diag.get("valid") and not is_stale:
             structured = diag.get("structured", {})
             findings = diag.get("findings", [])
             health = structured.get("health", {})

@@ -53,4 +53,8 @@ def register_operators():
 
 
 def unregister_operators():
+    from .restore import _WIREFRAME_ENABLED_BY_MESHFORGE
+    from .topology_inspect import _ACTIVE_DIAGNOSIS_CACHE
+    _WIREFRAME_ENABLED_BY_MESHFORGE.clear()
+    _ACTIVE_DIAGNOSIS_CACHE.clear()
     unregister_classes_safely(classes)

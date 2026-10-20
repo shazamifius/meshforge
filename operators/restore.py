@@ -45,20 +45,57 @@ class MESHFORGE_OT_restore(bpy.types.Operator):
         return {'FINISHED'}
 
 
+# Mémorisation des objets dont le mode filaire a été activé par MeshForge
+# Associe obj.name -> (prior_show_wire, prior_show_all_edges)
+_WIREFRAME_ENABLED_BY_MESHFORGE: dict[str, tuple[bool, bool]] = {}
+
+
+def restore_wireframe_if_meshforge_enabled(obj: bpy.types.Object) -> bool:
+    """Restaure l'état d'affichage filaire initial si MeshForge l'avait modifié."""
+    if not obj or obj.name not in _WIREFRAME_ENABLED_BY_MESHFORGE:
+        return False
+    prior_wire, prior_all_edges = _WIREFRAME_ENABLED_BY_MESHFORGE.pop(obj.name)
+    obj.show_wire = prior_wire
+    obj.show_all_edges = prior_all_edges
+    return True
+
+
 class MESHFORGE_OT_toggle_wireframe(bpy.types.Operator):
     """Bascule l'affichage filaire (Wireframe) pour inspecter la topologie"""
     bl_idname = "meshforge.toggle_wireframe"
-    bl_label = "Affichage Filaire (Wireframe)"
+    bl_label = "Affichage Filaire"
+    bl_description = "Bascule l'affichage filaire de l'objet pour visualiser les boucles d'arêtes et la topologie"
     bl_options = {'REGISTER'}
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None
+        return (
+            context.active_object is not None and
+            context.active_object.type == 'MESH'
+        )
 
     def execute(self, context):
         obj = context.active_object
-        obj.show_wire = not obj.show_wire
-        obj.show_all_edges = obj.show_wire
-        status = "activé" if obj.show_wire else "désactivé"
-        self.report({'INFO'}, f"Affichage filaire {status}.")
+        if not obj or obj.type != 'MESH':
+            return {'CANCELLED'}
+
+        is_currently_on = getattr(obj, "show_wire", False)
+        if is_currently_on:
+            # Désactiver le filaire et restaurer l'état préexistant
+            if obj.name in _WIREFRAME_ENABLED_BY_MESHFORGE:
+                prior_wire, prior_all_edges = _WIREFRAME_ENABLED_BY_MESHFORGE.pop(obj.name)
+                obj.show_wire = prior_wire
+                obj.show_all_edges = prior_all_edges
+            else:
+                obj.show_wire = False
+                obj.show_all_edges = False
+            self.report({'INFO'}, "MeshForge : Affichage filaire désactivé.")
+        else:
+            # Activer le filaire et mémoriser l'état initial
+            if obj.name not in _WIREFRAME_ENABLED_BY_MESHFORGE:
+                _WIREFRAME_ENABLED_BY_MESHFORGE[obj.name] = (obj.show_wire, obj.show_all_edges)
+            obj.show_wire = True
+            obj.show_all_edges = True
+            self.report({'INFO'}, "MeshForge : Affichage filaire activé.")
+
         return {'FINISHED'}

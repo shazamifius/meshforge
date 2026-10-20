@@ -11,6 +11,16 @@ Vérifie :
 9. Exécution de l'opérateur bpy.ops.meshforge.cut_ngons.
 """
 
+import sys
+from pathlib import Path
+
+repo_root = Path(__file__).resolve().parent.parent
+parent_dir = repo_root.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 import unittest
 import bpy
 import bmesh

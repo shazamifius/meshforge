@@ -8,7 +8,7 @@ import bpy
 from typing import Dict, Any
 
 from ..core.ngon_cutter import execute_ngon_cut
-from ..core.visualizer import apply_color_inspection
+from ..core.visualizer import apply_color_inspection, clear_inspection_view
 from .topology_inspect import _ACTIVE_DIAGNOSIS_CACHE
 
 
@@ -77,14 +77,22 @@ class MESHFORGE_OT_cut_ngons(bpy.types.Operator):
             self.report({'ERROR'}, f"MeshForge : {msg}")
             return {'CANCELLED'}
 
-        # Mise à jour du cache de diagnostic
+        # Mise à jour du cache de diagnostic avec signature topologique (UX7.2)
+        mesh = obj.data
+        real_tris = sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
         post_diag = res.get("post_diagnosis", {})
+        post_diag["topo_signature"] = (len(mesh.vertices), len(mesh.edges), len(mesh.polygons))
+        post_diag["mesh_name"] = mesh.name
+        post_diag["is_stale"] = False
+        post_diag["triangle_count"] = real_tris
         _ACTIVE_DIAGNOSIS_CACHE[obj.name] = post_diag
 
-        # Réappliquer la visualisation s'il reste des défauts
+        # Réappliquer la visualisation s'il reste des défauts ou effacer si 0 anomalie
         defects_remaining = len(post_diag.get("defects", []))
         if defects_remaining > 0:
             apply_color_inspection(obj, post_diag.get("defects", []), context=context)
+        else:
+            clear_inspection_view(obj, context=context)
 
         # Rapport synthétique
         n_refused = len(res.get("refused_ngons", []))

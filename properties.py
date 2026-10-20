@@ -93,15 +93,21 @@ class MeshForgeSettings(bpy.types.PropertyGroup):
         description="Déploie ou replie le tableau d'analyse catégorisé",
         default=True
     )
+    show_color_legend: BoolProperty(
+        name="Légende des couleurs",
+        description="Affiche la signification détaillée de la palette de couleurs d'inspection",
+        default=False
+    )
     active_defect_filter: EnumProperty(
         name="Filtrer les anomalies",
         description="Filtre la liste interactive des défauts par catégorie sémantique",
         items=[
             ('ALL', "Toutes les anomalies", "Afficher tous les défauts détectés"),
             ('ORANGE', "N-gones (Orange)", "Faces à plus de 4 côtés"),
-            ('BLUE', "Triangles suspects (Bleu)", "Triangles en zone déformable"),
+            ('BLUE', "Triangles suspects (Bleu)", "Triangles très étirés ou en zone déformable"),
             ('RED', "Dégénérescences (Rouge)", "Faces nulles, arêtes minuscules, non-manifold"),
-            ('VIOLET', "Éléments isolés (Violet)", "Composantes disjointes et géométrie flottante")
+            ('VIOLET', "Éléments isolés (Violet)", "Composantes disjointes et géométrie flottante"),
+            ('YELLOW', "Risques déformation (Jaune)", "Pôles complexes et tensions d'animation")
         ],
         default='ALL'
     )

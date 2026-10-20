@@ -7,15 +7,17 @@ Garantit formellement la préservation et la restauration des attributs utilisat
 from __future__ import annotations
 import bpy
 import bmesh
+from mathutils import Vector
 from typing import Dict, Any, List, Optional, Tuple
 
 # Palette de couleurs sémantiques (RGBA)
 CATEGORY_COLORS = {
-    'ORANGE': (1.0, 0.5, 0.05, 1.0),   # N-gones
-    'BLUE':   (0.15, 0.55, 1.0, 1.0),   # Triangles à examiner (déformables ou aiguilles)
-    'RED':    (0.95, 0.15, 0.15, 1.0),  # Dégénérescences & Non-manifold
-    'VIOLET': (0.75, 0.25, 0.95, 1.0),  # Éléments isolés / Loose
-    'NEUTRAL': (0.6, 0.6, 0.6, 1.0)     # Géométrie saine
+    'ORANGE': (1.0, 0.5, 0.05, 1.0),   # N-gones (> 4 côtés)
+    'BLUE':   (0.15, 0.55, 1.0, 1.0),   # Triangles à examiner (aiguilles ou bloquant des quads)
+    'RED':    (0.95, 0.15, 0.15, 1.0),  # Dégénérescences (faces nulles, micro-arêtes) & Non-manifold
+    'VIOLET': (0.75, 0.25, 0.95, 1.0),  # Éléments isolés (orphelins, arêtes filaires, îlots disjoints)
+    'YELLOW': (0.95, 0.85, 0.1, 1.0),   # Risques d'animation / Pôles complexes (valence >= 6)
+    'NEUTRAL': (0.65, 0.65, 0.65, 1.0)  # Géométrie saine de référence
 }
 
 TEMP_ATTR_NAME = "_MF_Inspection_Temp"
@@ -121,41 +123,108 @@ def select_defect(obj: bpy.types.Object, defect: Dict[str, Any]) -> bool:
     return True
 
 
-def zoom_to_defect(defect: Dict[str, Any], context: bpy.types.Context) -> Tuple[bool, str]:
-    """Cadre la vue 3D (Frame Selected / Zoom) sur la sélection ou le centre du défaut.
-    Gère explicitement le contexte pour éviter toute exception lorsqu'aucune fenêtre 3D n'est active.
+def zoom_to_defect(
+    defect: Dict[str, Any],
+    context: bpy.types.Context,
+    obj: Optional[bpy.types.Object] = None
+) -> Tuple[bool, str]:
+    """Cadre la vue 3D avec précision millimétrique directement sur l'anomalie géométrique.
+    Prend en compte la transformation monde de l'objet (position, rotation, échelle),
+    le rayon englobant du défaut, et ajuste le point focal (view_location) et la distance
+    de caméra (view_distance) dans les viewports 3D actifs. Place également le curseur 3D
+    sur le centre précis du défaut comme repère visuel immédiat.
     """
-    center = defect.get("center")
-    if not center:
-        return False, "Aucune coordonnée de centre disponible pour ce défaut."
+    if obj is None:
+        obj = context.active_object
 
-    # Recherche d'une zone 3D Viewport dans l'écran actif
-    view3d_area = None
-    view3d_region = None
+    if not obj or obj.type != 'MESH' or not obj.data:
+        return False, "Aucun maillage actif valide pour effectuer le cadrage visuel."
 
+    mesh = obj.data
+    matrix_world = obj.matrix_world
+    elem_type = defect.get("element_type", "FACE")
+    indices = defect.get("indices", [])
+
+    world_coords: List[Vector] = []
+
+    # 1. Extraction des coordonnées monde des sommets composants le défaut
+    if elem_type == "FACE":
+        num_faces = len(mesh.polygons)
+        num_verts = len(mesh.vertices)
+        for idx in indices:
+            if 0 <= idx < num_faces:
+                poly = mesh.polygons[idx]
+                for v_idx in poly.vertices:
+                    if 0 <= v_idx < num_verts:
+                        world_coords.append(matrix_world @ mesh.vertices[v_idx].co)
+    elif elem_type == "EDGE":
+        num_edges = len(mesh.edges)
+        num_verts = len(mesh.vertices)
+        for idx in indices:
+            if 0 <= idx < num_edges:
+                edge = mesh.edges[idx]
+                for v_idx in edge.vertices:
+                    if 0 <= v_idx < num_verts:
+                        world_coords.append(matrix_world @ mesh.vertices[v_idx].co)
+    elif elem_type == "VERT":
+        num_verts = len(mesh.vertices)
+        for idx in indices:
+            if 0 <= idx < num_verts:
+                world_coords.append(matrix_world @ mesh.vertices[idx].co)
+
+    # Repli si aucun sommet n'a pu être extrait des indices (ex: maillage modifié depuis le diagnostic)
+    center_local = defect.get("center")
+    if not world_coords:
+        if center_local:
+            world_coords.append(matrix_world @ Vector(center_local))
+        else:
+            return False, "Coordonnées de l'anomalie introuvables ou géométrie modifiée."
+
+    # 2. Calcul du centre monde et du rayon englobant de l'anomalie
+    world_center = sum(world_coords, Vector((0.0, 0.0, 0.0))) / len(world_coords)
+
+    if len(world_coords) > 1:
+        radius = max((co - world_center).length for co in world_coords)
+    else:
+        obj_diag = max(obj.dimensions) if hasattr(obj, "dimensions") and any(obj.dimensions) else 1.0
+        radius = max(0.02, obj_diag * 0.03)
+
+    # 3. Positionnement du curseur 3D sur le centre du défaut (repère visuel immédiat)
+    try:
+        if hasattr(context, "scene") and context.scene:
+            context.scene.cursor.location = world_center
+    except Exception:
+        pass
+
+    # 4. Recherche des espaces 3D (View3D)
+    spaces_3d = _find_active_3d_spaces(context)
+    if not spaces_3d:
+        return False, "Aucune vue 3D active trouvée pour effectuer le cadrage visuel (mode arrière-plan ou panneau détaché)."
+
+    # 5. Ajustement précis de la caméra viewport (view_location et view_distance)
+    framed = False
+    for space in spaces_3d:
+        r3d = getattr(space, "region_3d", None)
+        if not r3d:
+            continue
+
+        clip_start = getattr(space, "clip_start", 0.01)
+        min_dist = max(0.15, clip_start * 3.0)
+        target_dist = max(min_dist, radius * 3.5)
+
+        r3d.view_location = world_center
+        r3d.view_distance = target_dist
+        framed = True
+
+    # Déclencher le redessin des zones 3D
     if hasattr(context, "screen") and context.screen:
         for area in context.screen.areas:
             if area.type == 'VIEW_3D':
-                view3d_area = area
-                for region in area.regions:
-                    if region.type == 'WINDOW':
-                        view3d_region = region
-                        break
-                break
+                area.tag_redraw()
 
-    if not view3d_area or not view3d_region:
-        return False, "Aucune vue 3D active trouvée pour effectuer le cadrage visuel (mode arrière-plan ou panneau détaché)."
-
-    # Exécution sécurisée avec temp_override
-    try:
-        with context.temp_override(area=view3d_area, region=view3d_region):
-            if bpy.ops.view3d.view_selected.poll():
-                bpy.ops.view3d.view_selected()
-                return True, "Cadrage 3D effectué avec succès."
-    except Exception as e:
-        return False, f"Impossible de cadrer la vue 3D : {e}"
-
-    return True, "Cadrage 3D effectué."
+    if framed:
+        return True, "Cadrage 3D précis effectué sur l'anomalie."
+    return False, "Impossible d'accéder au contrôleur 3D de la vue."
 
 
 def apply_color_inspection(
@@ -207,10 +276,11 @@ def apply_color_inspection(
         col.color = neutral
 
     # Priorité sémantique pour la coloration des faces :
-    # RED (Erreur bloquante) > ORANGE (N-gone) > BLUE (Triangle) > VIOLET (Îlot isolé)
+    # RED (Erreur critique) > ORANGE (N-gone) > YELLOW (Risque déformation) > BLUE (Triangle) > VIOLET (Îlot isolé)
     category_priority = {
-        'RED': 4,
-        'ORANGE': 3,
+        'RED': 5,
+        'ORANGE': 4,
+        'YELLOW': 3,
         'BLUE': 2,
         'VIOLET': 1,
         'NEUTRAL': 0
@@ -286,5 +356,12 @@ def clear_inspection_view(
 
     # 4. Restaurer le mode de shading viewport
     _restore_viewport_shading(context)
+
+    # 5. Restaurer le mode filaire s'il avait été activé par MeshForge
+    try:
+        from ..operators.restore import restore_wireframe_if_meshforge_enabled
+        restore_wireframe_if_meshforge_enabled(obj)
+    except Exception:
+        pass
 
     return True
