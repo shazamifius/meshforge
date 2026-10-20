@@ -151,9 +151,21 @@ class MESHFORGE_OT_dissolve(bpy.types.Operator):
 
         target_obj = source_obj
         created_new = False
-        if getattr(props, "create_new_object", True) and not source_obj.name.endswith("_MF_Optimized"):
+        if getattr(props, "create_new_object", True) and "_MF_Optimized" not in source_obj.name:
             target_obj = duplicate_object_non_destructive(source_obj)
             created_new = True
+        elif "_MF_Optimized" in source_obj.name:
+            # Vérification de l'obsolescence (staleness) par rapport à l'original source
+            root_source = source_obj.get("_mf_source_ptr", None)
+            if root_source and root_source.name in bpy.data.objects and root_source.data:
+                orig_sig = f"{len(root_source.data.vertices)}v_{len(root_source.data.edges)}e_{len(root_source.data.polygons)}f"
+                saved_sig = source_obj.get("_mf_source_mesh_version", "")
+                if saved_sig and orig_sig != saved_sig:
+                    self.report(
+                        {'INFO'},
+                        f"MeshForge Note : L'original '{root_source.name}' a été modifié depuis la création de cette copie. "
+                        "L'opération s'applique sur cette copie existante."
+                    )
 
         try:
             if has_shape_keys and target_obj != source_obj:
@@ -303,9 +315,21 @@ class MESHFORGE_OT_simplification(bpy.types.Operator):
 
         target_obj = source_obj
         created_new = False
-        if getattr(props, "create_new_object", True) and not source_obj.name.endswith("_MF_Optimized"):
+        if getattr(props, "create_new_object", True) and "_MF_Optimized" not in source_obj.name:
             target_obj = duplicate_object_non_destructive(source_obj)
             created_new = True
+        elif "_MF_Optimized" in source_obj.name:
+            # Vérification de l'obsolescence (staleness) par rapport à l'original source
+            root_source = source_obj.get("_mf_source_ptr", None)
+            if root_source and root_source.name in bpy.data.objects and root_source.data:
+                orig_sig = f"{len(root_source.data.vertices)}v_{len(root_source.data.edges)}e_{len(root_source.data.polygons)}f"
+                saved_sig = source_obj.get("_mf_source_mesh_version", "")
+                if saved_sig and orig_sig != saved_sig:
+                    self.report(
+                        {'INFO'},
+                        f"MeshForge Note : L'original '{root_source.name}' a été modifié depuis la création de cette copie. "
+                        "L'opération s'applique sur cette copie existante."
+                    )
 
         try:
             if has_shape_keys and target_obj != source_obj:

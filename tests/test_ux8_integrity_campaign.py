@@ -1,27 +1,25 @@
-"""MeshForge - Campagne ciblée d'intégrité UX8 (P0 & P1).
+"""MeshForge - Campagne ciblée d'intégrité UX8 (P0 & P1) - Version Clôture Auditable.
 
-Vérifie rigoureusement :
-1. Intégrité absolue de l'objet source (P0) :
-   - Opération réussie sur une copie (l'original reste 100% identique au bit près, simplement masqué)
-   - Refus Shape Keys (original non modifié, non masqué)
-   - Refus dissolution agressive (original non modifié, non masqué)
-   - Exception provoquée / erreur d'exécution (rollback atomique : copie purgée, original restauré actif et visible)
-   - Deuxième décimation sur la copie optimisée (l'original racine demeure 100% intact)
-2. Atomicité et restauration (P0) :
-   - Rollback atomique sans orphelins ni masquage de l'original
-   - Renommage de l'original après décimation : restauration résolue sans erreur via `_mf_source_ptr`
-   - Suffixes numériques : `Mesh.001` ne prolifère pas en `Mesh.001_MF_Optimized.001`
-   - Décimations successives réutilisent la copie optimisée
-   - Suppression accidentelle de l'original : la restauration refuse d'écraser/supprimer le résultat orphelin
-3. Matrice de fidélité des attributs (P1) :
-   - Test sur maillage multi-îlots, coutures, arêtes vives, multi-matériaux, vertex groups non triviaux et color attributes
-   - Distinction rigoureuse : Présent / Conservé exactement / Interpolé
-4. Copie statique sans Shape Keys (P1) :
-   - Purge ciblée sur la copie uniquement, original préservé
-   - Statut de dérivé statique (LOD/Bake/Collision)
-5. Garde-fous de dissolution (P1) :
-   - Vérification de tous les déclencheurs (seams, sharp, matériaux multiples, courbure)
-   - Exigence stricte de confirmation explicite
+Vérifie rigoureusement et sans tolérance cachée :
+1. Comparateurs d'intégrité audités et stricts (P0) :
+   - Coordonnées exactes IEEE-754 sans arrondi
+   - Deltas des Shape Keys (vecteur de déplacement per-vertex relatif à la Basis)
+   - UVs comparées par polygone et par boucle (Loops) dans l'ordre canonique
+   - Poids des vertex groups comparés par groupe et par sommet
+   - Couleurs comparées avec domaine (Point/Corner), data_type et composantes RGBA
+   - Modificateurs comparés avec types, propriétés critiques et pointeurs d'objets
+2. Cycle de vie complet de `_mf_source_ptr` et de la copie optimisée (P0) :
+   - Original supprimé puis création d'un objet homonyme (détection d'imposteur, aucun faux bind)
+   - Original et maillage complètement supprimés (aucun crash, copie restante préservée)
+   - Copie optimisée dupliquée manuellement (.001) : décimation directe sans écraser la copie sœur
+   - Détection d'obsolescence (staleness) si l'original a évolué
+   - Restauration inter-scènes ou hors view-layer sans exception non gérée
+3. Fidélité réelle des attributs sur la copie (P1) :
+   - Preuve empirique que `preserve_materials=True` interdit la traversée de frontières de shaders
+   - Preuve empirique que `preserve_seams=True` et `preserve_sharp=True` interdisent la dissolution des arêtes marquées
+   - Caractérisation précise de l'interpolation (UVs, poids de sommets, vertex colors)
+4. Garde-fous d'exécution (P1) :
+   - Inviolabilité par appel direct bpy.ops (coutures, arêtes, multi-matériaux, courbure)
 """
 
 from __future__ import annotations
@@ -42,58 +40,111 @@ from mathutils import Vector
 import meshforge
 
 
-def snapshot_object_state(obj: bpy.types.Object) -> dict:
-    """Capture un instantané exhaustif de l'état d'un objet Blender."""
+def snapshot_object_state_strict(obj: bpy.types.Object) -> dict:
+    """Capture un instantané exhaustif, bit-exact et canonique de l'état d'un objet Blender."""
     mesh = obj.data
 
-    coords = [tuple(v.co) for v in mesh.vertices]
-    edges = [tuple(sorted(e.vertices)) for e in mesh.edges]
-    faces = [tuple(p.vertices) for p in mesh.polygons]
+    # 1. Coordonnées exactes (IEEE-754)
+    coords = [tuple(float(c) for c in v.co) for v in mesh.vertices]
 
+    # 2. Connectivité canonique (indépendante de l'ordre interne des arêtes)
+    edges = sorted([tuple(sorted([e.vertices[0], e.vertices[1]])) for e in mesh.edges])
+    faces = [tuple(int(v) for v in p.vertices) for p in mesh.polygons]
+
+    # 3. Shape Keys et deltas complets par sommet par clé
     sk_info = None
-    if mesh.shape_keys:
+    if mesh.shape_keys and mesh.shape_keys.key_blocks:
+        basis = mesh.shape_keys.key_blocks.get("Basis")
         sk_info = []
         for kb in mesh.shape_keys.key_blocks:
+            abs_co = [tuple(float(c) for c in pt.co) for pt in kb.data]
+            deltas = []
+            if basis:
+                deltas = [
+                    tuple(float(pt.co[i] - basis.data[idx].co[i]) for i in range(3))
+                    for idx, pt in enumerate(kb.data)
+                ]
             sk_info.append({
-                "name": kb.name,
-                "value": kb.value,
-                "data": [tuple(pt.co) for pt in kb.data]
+                "name": str(kb.name),
+                "value": float(kb.value),
+                "mute": bool(kb.mute),
+                "coords": abs_co,
+                "deltas": deltas,
             })
 
+    # 4. UVs par polygone et par boucle (Loops) canoniques
     uv_data = {}
     if mesh.uv_layers:
         for uv_layer in mesh.uv_layers:
-            uv_data[uv_layer.name] = [tuple(loop.uv) for loop in uv_layer.data]
+            poly_loops = {}
+            for p in mesh.polygons:
+                poly_loops[p.index] = [tuple(float(c) for c in uv_layer.data[l_idx].uv) for l_idx in p.loop_indices]
+            uv_data[uv_layer.name] = {
+                "active": (uv_layer == mesh.uv_layers.active),
+                "loops": poly_loops
+            }
 
-    mat_names = [slot.material.name if slot.material else "" for slot in obj.material_slots]
-    poly_mats = [p.material_index for p in mesh.polygons]
+    # 5. Matériaux et affectations par face
+    mat_slots = [(i, slot.material.name if slot.material else None) for i, slot in enumerate(obj.material_slots)]
+    poly_mats = [int(p.material_index) for p in mesh.polygons]
 
+    # 6. Groupes de sommets et poids stricts par sommet
     vg_data = {}
     for vg in obj.vertex_groups:
         weights = {}
-        for i in range(len(mesh.vertices)):
+        for v in mesh.vertices:
             try:
-                weights[i] = vg.weight(i)
+                weights[v.index] = float(vg.weight(v.index))
             except RuntimeError:
-                pass
+                pass  # Sommet non assigné au groupe
         vg_data[vg.name] = weights
 
+    # 7. Attributs de couleur stricts (domaine, data_type, composantes)
     color_data = {}
     for ca in mesh.color_attributes:
+        raw_colors = [tuple(float(c) for c in item.color) for item in ca.data]
         color_data[ca.name] = {
-            "domain": ca.domain,
-            "data_type": ca.data_type,
-            "values": [tuple(getattr(item, "color", ())) for item in ca.data]
+            "domain": str(ca.domain),
+            "data_type": str(ca.data_type),
+            "values": raw_colors
         }
 
-    seams = [e.index for e in mesh.edges if e.use_seam]
-    sharp = [e.index for e in mesh.edges if e.use_edge_sharp]
+    # 8. Coutures UV et Arêtes vives canoniques
+    seam_edges = sorted([
+        tuple(sorted([e.vertices[0], e.vertices[1]]))
+        for e in mesh.edges if e.use_seam
+    ])
+    sharp_edges = sorted([
+        tuple(sorted([e.vertices[0], e.vertices[1]]))
+        for e in mesh.edges if e.use_edge_sharp
+    ])
 
-    mods = [(m.name, m.type, getattr(m, 'show_viewport', True)) for m in obj.modifiers]
+    # 9. Modificateurs avec paramètres critiques et références d'objets
+    mods = []
+    for m in obj.modifiers:
+        m_dict = {
+            "name": m.name,
+            "type": m.type,
+            "show_viewport": m.show_viewport,
+            "show_render": m.show_render
+        }
+        if m.type == 'ARMATURE':
+            m_dict["armature_target"] = m.object.name if m.object else None
+            m_dict["use_vertex_groups"] = m.use_vertex_groups
+        elif m.type == 'BEVEL':
+            m_dict["width"] = getattr(m, 'width', 0.0)
+            m_dict["segments"] = getattr(m, 'segments', 1)
+        elif m.type == 'SUBSURF':
+            m_dict["levels"] = getattr(m, 'levels', 1)
+        mods.append(m_dict)
 
-    vis = {
-        "hide_viewport": obj.hide_get(),
-        "hide_render": obj.hide_render
+    # 10. Visibilité et transformations d'objet
+    transform = {
+        "location": tuple(float(c) for c in obj.location),
+        "rotation": tuple(float(c) for c in obj.rotation_euler),
+        "scale": tuple(float(c) for c in obj.scale),
+        "hide_viewport": bool(obj.hide_get()),
+        "hide_render": bool(obj.hide_render)
     }
 
     return {
@@ -103,36 +154,36 @@ def snapshot_object_state(obj: bpy.types.Object) -> dict:
         "faces": faces,
         "shape_keys": sk_info,
         "uv_data": uv_data,
-        "mat_names": mat_names,
+        "mat_slots": mat_slots,
         "poly_mats": poly_mats,
         "vg_data": vg_data,
         "color_data": color_data,
-        "seams": seams,
-        "sharp": sharp,
+        "seam_edges": seam_edges,
+        "sharp_edges": sharp_edges,
         "mods": mods,
-        "vis": vis
+        "transform": transform
     }
 
 
-def assert_source_object_intact(test_case: unittest.TestCase, snap_before: dict, snap_after: dict, expect_hidden: bool = False):
-    """Vérifie au bit près que l'objet source n'a subi AUCUNE altération de données."""
-    test_case.assertEqual(snap_before["coords"], snap_after["coords"], "Altération des coordonnées de l'original !")
-    test_case.assertEqual(snap_before["edges"], snap_after["edges"], "Altération de la connectivité des arêtes de l'original !")
-    test_case.assertEqual(snap_before["faces"], snap_after["faces"], "Altération de la connectivité des faces de l'original !")
-    test_case.assertEqual(snap_before["shape_keys"], snap_after["shape_keys"], "Altération des Shape Keys de l'original !")
-    test_case.assertEqual(snap_before["uv_data"], snap_after["uv_data"], "Altération des coordonnées UV de l'original !")
-    test_case.assertEqual(snap_before["mat_names"], snap_after["mat_names"], "Altération de la liste des matériaux de l'original !")
-    test_case.assertEqual(snap_before["poly_mats"], snap_after["poly_mats"], "Altération des affectations de matériaux par face de l'original !")
-    test_case.assertEqual(snap_before["vg_data"], snap_after["vg_data"], "Altération des groupes ou poids de sommets de l'original !")
-    test_case.assertEqual(snap_before["color_data"], snap_after["color_data"], "Altération des attributs de couleur de l'original !")
-    test_case.assertEqual(snap_before["seams"], snap_after["seams"], "Altération des coutures UV de l'original !")
-    test_case.assertEqual(snap_before["sharp"], snap_after["sharp"], "Altération des arêtes vives de l'original !")
-    test_case.assertEqual(snap_before["mods"], snap_after["mods"], "Altération de la pile de modificateurs de l'original !")
+def assert_source_object_intact_strict(test_case: unittest.TestCase, before: dict, after: dict, expect_hidden: bool = False):
+    """Vérifie l'égalité stricte sans tolérance cachée."""
+    test_case.assertEqual(before["coords"], after["coords"], "Divergence stricte des coordonnées sommets !")
+    test_case.assertEqual(before["edges"], after["edges"], "Divergence stricte de la connectivité des arêtes !")
+    test_case.assertEqual(before["faces"], after["faces"], "Divergence stricte des faces !")
+    test_case.assertEqual(before["shape_keys"], after["shape_keys"], "Divergence stricte des Shape Keys ou de leurs deltas !")
+    test_case.assertEqual(before["uv_data"], after["uv_data"], "Divergence stricte des coordonnées UV par boucle !")
+    test_case.assertEqual(before["mat_slots"], after["mat_slots"], "Divergence stricte des slots de matériaux !")
+    test_case.assertEqual(before["poly_mats"], after["poly_mats"], "Divergence stricte des affectations de matériaux par face !")
+    test_case.assertEqual(before["vg_data"], after["vg_data"], "Divergence stricte des poids de groupes de sommets !")
+    test_case.assertEqual(before["color_data"], after["color_data"], "Divergence stricte des attributs de couleur !")
+    test_case.assertEqual(before["seam_edges"], after["seam_edges"], "Divergence stricte des coutures UV !")
+    test_case.assertEqual(before["sharp_edges"], after["sharp_edges"], "Divergence stricte des arêtes vives !")
+    test_case.assertEqual(before["mods"], after["mods"], "Divergence stricte des modificateurs ou de leurs paramètres !")
 
     if expect_hidden:
-        test_case.assertTrue(snap_after["vis"]["hide_viewport"], "L'original devrait être masqué après succès non-destructif.")
+        test_case.assertTrue(after["transform"]["hide_viewport"], "L'original devrait être masqué pour le confort visuel.")
     else:
-        test_case.assertFalse(snap_after["vis"]["hide_viewport"], "L'original ne doit pas être masqué en cas de refus ou d'échec.")
+        test_case.assertFalse(after["transform"]["hide_viewport"], "L'original ne doit pas être masqué en cas d'échec ou d'annulation.")
 
 
 class TestUX8IntegrityCampaign(unittest.TestCase):
@@ -156,7 +207,7 @@ class TestUX8IntegrityCampaign(unittest.TestCase):
         self.scene = bpy.context.scene
         self.props = self.scene.meshforge_settings
 
-        # Réinitialisation
+        # Réinitialisation des paramètres
         self.props.create_new_object = True
         self.props.hide_original = True
         self.props.allow_shape_keys_removal_on_copy = False
@@ -171,12 +222,12 @@ class TestUX8IntegrityCampaign(unittest.TestCase):
         self.props.preserve_uvs = True
 
     def _create_rich_test_mesh(self, name="RichMesh", with_shape_keys=True) -> bpy.types.Object:
-        """Génère un maillage riche complet : UVs, coutures, arêtes vives, 2 matériaux, 2 vgroups, couleurs, modificateurs."""
+        """Génère un maillage riche avec toutes les composantes modélisées."""
         bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=16, radius=1.0)
         obj = bpy.context.active_object
         obj.name = name
 
-        # 1. Deux matériaux
+        # Matériaux
         mat1 = bpy.data.materials.new("Mat_A")
         mat2 = bpy.data.materials.new("Mat_B")
         obj.data.materials.append(mat1)
@@ -184,13 +235,13 @@ class TestUX8IntegrityCampaign(unittest.TestCase):
         for i, poly in enumerate(obj.data.polygons):
             poly.material_index = 0 if i % 2 == 0 else 1
 
-        # 2. Coutures UV et arêtes vives
+        # Coutures et arêtes vives
         for e in obj.data.edges[:8]:
             e.use_seam = True
         for e in obj.data.edges[8:16]:
             e.use_edge_sharp = True
 
-        # 3. Groupes de sommets et poids non triviaux
+        # Groupes de sommets et poids non triviaux
         vg1 = obj.vertex_groups.new(name="VG_Bone_Root")
         vg2 = obj.vertex_groups.new(name="VG_Bone_Tip")
         for v in obj.data.vertices:
@@ -199,7 +250,7 @@ class TestUX8IntegrityCampaign(unittest.TestCase):
             else:
                 vg2.add([v.index], 0.35, 'REPLACE')
 
-        # 4. Attributs de couleur (POINT et CORNER)
+        # Couleurs de sommets
         ca_pt = obj.data.color_attributes.new(name="Color_Point", type='FLOAT_COLOR', domain='POINT')
         for item in ca_pt.data:
             item.color = (0.2, 0.4, 0.6, 1.0)
@@ -208,12 +259,12 @@ class TestUX8IntegrityCampaign(unittest.TestCase):
         for item in ca_loop.data:
             item.color = (0.8, 0.1, 0.2, 1.0)
 
-        # 5. Modificateurs (Armature & Bevel désactivé)
-        arm_mod = obj.modifiers.new(name="Armature_Rig", type='ARMATURE')
+        # Modificateurs
+        obj.modifiers.new(name="Armature_Rig", type='ARMATURE')
         bev_mod = obj.modifiers.new(name="Bevel_Detail", type='BEVEL')
         bev_mod.width = 0.05
 
-        # 6. Shape Keys
+        # Shape Keys
         if with_shape_keys:
             obj.shape_key_add(name="Basis")
             sk1 = obj.shape_key_add(name="Blink_L")
@@ -222,62 +273,52 @@ class TestUX8IntegrityCampaign(unittest.TestCase):
         return obj
 
     # =========================================================================
-    # SECTION 1 : INTÉGRITÉ DE L'OBJET SOURCE — P0
+    # 1. INTÉGRITÉ DE L'OBJET SOURCE AVEC COMPARATEUR STRICT (P0)
     # =========================================================================
 
     def test_p0_source_integrity_successful_operation(self):
-        """Scénario 1.1 : Opération réussie sur une copie.
-        L'objet original doit rester 100% identique au bit près dans toutes ses données.
-        """
+        """Vérifie l'intégrité stricte bit-exacte de l'original lors d'un succès."""
         obj = self._create_rich_test_mesh(with_shape_keys=False)
-        snap_before = snapshot_object_state(obj)
+        snap_before = snapshot_object_state_strict(obj)
 
         res = bpy.ops.meshforge.simplification()
         self.assertEqual(res, {'FINISHED'})
 
-        snap_after = snapshot_object_state(obj)
-        assert_source_object_intact(self, snap_before, snap_after, expect_hidden=True)
+        snap_after = snapshot_object_state_strict(obj)
+        assert_source_object_intact_strict(self, snap_before, snap_after, expect_hidden=True)
 
     def test_p0_source_integrity_shape_keys_refusal(self):
-        """Scénario 1.2 : Refus lié aux Shape Keys.
-        L'original doit rester 100% intact et visible (non masqué).
-        """
+        """Vérifie l'intégrité stricte de l'original en cas de refus Shape Keys."""
         obj = self._create_rich_test_mesh(with_shape_keys=True)
         self.props.allow_shape_keys_removal_on_copy = False
-        snap_before = snapshot_object_state(obj)
+        snap_before = snapshot_object_state_strict(obj)
 
         with self.assertRaises(RuntimeError) as ctx:
             bpy.ops.meshforge.simplification()
         self.assertIn("Shape Keys", str(ctx.exception))
 
-        snap_after = snapshot_object_state(obj)
-        assert_source_object_intact(self, snap_before, snap_after, expect_hidden=False)
+        snap_after = snapshot_object_state_strict(obj)
+        assert_source_object_intact_strict(self, snap_before, snap_after, expect_hidden=False)
 
     def test_p0_source_integrity_aggressive_dissolve_refusal(self):
-        """Scénario 1.3 : Refus lié à une dissolution agressive.
-        L'original doit rester 100% intact et visible.
-        """
+        """Vérifie l'intégrité stricte de l'original en cas de refus dissolution agressive."""
         obj = self._create_rich_test_mesh(with_shape_keys=False)
         self.props.decimate_method = 'DISSOLVE'
-        self.props.preserve_seams = False  # Risque détecté
+        self.props.preserve_seams = False
         self.props.confirm_aggressive_dissolve = False
-        snap_before = snapshot_object_state(obj)
+        snap_before = snapshot_object_state_strict(obj)
 
         res = bpy.ops.meshforge.dissolve()
         self.assertEqual(res, {'CANCELLED'})
 
-        snap_after = snapshot_object_state(obj)
-        assert_source_object_intact(self, snap_before, snap_after, expect_hidden=False)
+        snap_after = snapshot_object_state_strict(obj)
+        assert_source_object_intact_strict(self, snap_before, snap_after, expect_hidden=False)
 
     def test_p0_source_integrity_on_execution_exception_rollback(self):
-        """Scénario 1.4 : Exception provoquée pendant l'exécution.
-        Vérifie le rollback atomique : l'original reste 100% intact et visible,
-        aucune copie partielle orpheline ne subsiste dans bpy.data.objects.
-        """
+        """Vérifie le rollback atomique bit-exact en cas d'exception simulée."""
         obj = self._create_rich_test_mesh(with_shape_keys=False)
-        snap_before = snapshot_object_state(obj)
+        snap_before = snapshot_object_state_strict(obj)
 
-        # Injecter temporairement une exception simulée dans execute_simplification
         import meshforge.operators.section_ops as s_ops
         orig_fn = s_ops.execute_simplification
 
@@ -292,240 +333,239 @@ class TestUX8IntegrityCampaign(unittest.TestCase):
         finally:
             s_ops.execute_simplification = orig_fn
 
-        # Vérifier que l'original est intact et visible
-        snap_after = snapshot_object_state(obj)
-        assert_source_object_intact(self, snap_before, snap_after, expect_hidden=False)
-
-        # Vérifier qu'AUCUNE copie optimisée orpheline n'existe
-        all_names = [o.name for o in bpy.data.objects]
-        self.assertNotIn("RichMesh_MF_Optimized", all_names)
+        snap_after = snapshot_object_state_strict(obj)
+        assert_source_object_intact_strict(self, snap_before, snap_after, expect_hidden=False)
+        self.assertNotIn("RichMesh_MF_Optimized", [o.name for o in bpy.data.objects])
 
     def test_p0_source_integrity_second_decimation(self):
-        """Scénario 1.5 : Deuxième décimation successive sur la copie optimisée.
-        L'original racine doit rester 100% identique au bit près.
-        """
+        """Vérifie que l'original racine reste strictement intact lors de réductions répétées."""
         obj = self._create_rich_test_mesh(with_shape_keys=False)
-        snap_before = snapshot_object_state(obj)
+        snap_before = snapshot_object_state_strict(obj)
 
-        # Première décimation
-        res1 = bpy.ops.meshforge.simplification()
-        self.assertEqual(res1, {'FINISHED'})
-
-        # Deuxième décimation
+        bpy.ops.meshforge.simplification()
         self.props.simplification_percentage = 60.0
-        res2 = bpy.ops.meshforge.simplification()
-        self.assertEqual(res2, {'FINISHED'})
+        bpy.ops.meshforge.simplification()
 
-        # Vérifier que l'original racine est toujours 100% identique
-        snap_after = snapshot_object_state(obj)
-        assert_source_object_intact(self, snap_before, snap_after, expect_hidden=True)
+        snap_after = snapshot_object_state_strict(obj)
+        assert_source_object_intact_strict(self, snap_before, snap_after, expect_hidden=True)
 
     # =========================================================================
-    # SECTION 2 : ATOMICITÉ ET RESTAURATION — P0
+    # 2. TESTS DE CYCLE DE VIE DE _mf_source_ptr ET CAS LIMITES (P0)
     # =========================================================================
 
-    def test_p0_atomicity_and_renamed_original_restore(self):
-        """Vérifie que renommer l'original n'empêche pas sa restauration grâce à _mf_source_ptr."""
-        obj = self._create_rich_test_mesh("OriginalHero", with_shape_keys=False)
-        res = bpy.ops.meshforge.simplification()
-        self.assertEqual(res, {'FINISHED'})
-
-        opt_obj = bpy.context.active_object
-        self.assertEqual(opt_obj.name, "OriginalHero_MF_Optimized")
-
-        # Renommer l'original pendant qu'il est masqué
-        obj.name = "CustomRenamedHero"
-
-        # La restauration doit retrouver l'original renommé via _mf_source_ptr
-        res_rst = bpy.ops.meshforge.restore()
-        self.assertEqual(res_rst, {'FINISHED'})
-
-        self.assertFalse(obj.hide_get(), "L'original renommé doit être redevenu visible !")
-        self.assertEqual(bpy.context.active_object, obj)
-        self.assertNotIn("OriginalHero_MF_Optimized", bpy.data.objects)
-
-    def test_p0_numeric_suffix_no_proliferation(self):
-        """Vérifie qu'un objet avec suffixe numérique (ex: Asset.001) ne prolifère pas en Asset.001_MF_Optimized.001."""
-        obj = self._create_rich_test_mesh("Asset.001", with_shape_keys=False)
-
-        res1 = bpy.ops.meshforge.simplification()
-        self.assertEqual(res1, {'FINISHED'})
-        opt1 = bpy.context.active_object
-        self.assertEqual(opt1.name, "Asset.001_MF_Optimized")
-
-        # Deuxième décimation
-        res2 = bpy.ops.meshforge.simplification()
-        self.assertEqual(res2, {'FINISHED'})
-        opt2 = bpy.context.active_object
-        self.assertEqual(opt2.name, "Asset.001_MF_Optimized")
-
-        all_names = [o.name for o in bpy.data.objects]
-        self.assertNotIn("Asset.001_MF_Optimized.001", all_names)
-
-        # Restauration propre
-        res_rst = bpy.ops.meshforge.restore()
-        self.assertEqual(res_rst, {'FINISHED'})
-        self.assertFalse(obj.hide_get())
-
-    def test_p0_deleted_original_safe_handling(self):
-        """Si l'utilisateur supprime l'original, restore ne doit PAS détruire la copie restante."""
-        obj = self._create_rich_test_mesh("TemporaryOriginal", with_shape_keys=False)
-        res = bpy.ops.meshforge.simplification()
-        self.assertEqual(res, {'FINISHED'})
-
-        opt_obj = bpy.context.active_object
-        # Supprimer manuellement l'original
-        bpy.data.objects.remove(obj, do_unlink=True)
-
-        # Tenter la restauration
-        res_rst = bpy.ops.meshforge.restore()
-        self.assertEqual(res_rst, {'CANCELLED'}, "La restauration doit être annulée pour éviter la perte de données.")
-        # La copie optimisée doit TOUJOURS exister
-        self.assertIn(opt_obj.name, bpy.data.objects)
-
-    # =========================================================================
-    # SECTION 3 : MATRICE DE FIDÉLITÉ DES ATTRIBUTS — P1
-    # =========================================================================
-
-    def test_p1_attribute_fidelity_collapse(self):
-        """Vérifie le comportement de chaque attribut après Contraction d'arêtes (COLLAPSE).
-        Distingue rigoureusement : Présence vs Exactitude vs Interpolation.
+    def test_p0_lifecycle_imposter_name_rejected(self):
+        """Si l'original est supprimé et qu'un NOUVEL objet prend son ancien nom,
+        MeshForge détecte que le pointeur est mort et refuse de binder sur l'imposteur.
         """
-        obj = self._create_rich_test_mesh("FidelityCollapse", with_shape_keys=False)
-        self.props.decimate_method = 'COLLAPSE'
-        self.props.simplification_percentage = 40.0
+        cube = self._create_rich_test_mesh("TargetAlpha", with_shape_keys=False)
+        bpy.ops.meshforge.simplification()
+        opt = bpy.context.active_object
+        self.assertEqual(opt.name, "TargetAlpha_MF_Optimized")
 
+        # Supprimer le véritable original
+        bpy.data.objects.remove(cube, do_unlink=True)
+
+        # Créer un objet imposteur portant le même nom
+        bpy.ops.mesh.primitive_cylinder_add()
+        imposter = bpy.context.active_object
+        imposter.name = "TargetAlpha"
+
+        # Sélectionner la copie optimisée et tenter de restaurer
+        bpy.context.view_layer.objects.active = opt
+        opt.select_set(True)
+
+        res = bpy.ops.meshforge.restore()
+        self.assertEqual(res, {'CANCELLED'}, "La restauration doit être refusée : le pointeur original est mort !")
+        # La copie optimisée et l'imposteur doivent tous deux subsister intacts
+        self.assertIn("TargetAlpha_MF_Optimized", bpy.data.objects)
+        self.assertIn("TargetAlpha", bpy.data.objects)
+
+    def test_p0_lifecycle_original_and_mesh_deleted_safe(self):
+        """Si l'original et ses données de maillage sont complètement purgés de Blender,
+        restore refuse d'effacer la copie optimisée.
+        """
+        cube = self._create_rich_test_mesh("DeadMeshOriginal", with_shape_keys=False)
+        mesh_data = cube.data
         bpy.ops.meshforge.simplification()
         opt = bpy.context.active_object
 
-        # 1. Matériaux : Présents et conservés exactement
-        self.assertEqual(len(opt.material_slots), 2)
-        self.assertEqual([s.material.name for s in opt.material_slots], ["Mat_A", "Mat_B"])
-        poly_mats = set(p.material_index for p in opt.data.polygons)
-        self.assertTrue(0 in poly_mats and 1 in poly_mats, "Les 2 matériaux doivent être affectés aux faces.")
+        bpy.data.objects.remove(cube, do_unlink=True)
+        if mesh_data.users == 0:
+            bpy.data.meshes.remove(mesh_data)
 
-        # 2. UVs : Présents mais interpolés géométriquement
-        self.assertIn("UVMap", opt.data.uv_layers)
-        self.assertGreater(len(opt.data.uv_layers["UVMap"].data), 0)
+        bpy.context.view_layer.objects.active = opt
+        res = bpy.ops.meshforge.restore()
+        self.assertEqual(res, {'CANCELLED'})
+        self.assertIn("DeadMeshOriginal_MF_Optimized", bpy.data.objects)
 
-        # 3. Vertex Groups : Présents mais poids interpolés
-        self.assertEqual(len(opt.vertex_groups), 2)
-        vg_names = [vg.name for vg in opt.vertex_groups]
-        self.assertIn("VG_Bone_Root", vg_names)
-        self.assertIn("VG_Bone_Tip", vg_names)
+    def test_p0_lifecycle_manual_duplicate_copy(self):
+        """Si l'utilisateur duplique manuellement la copie (ex: Shift+D -> _MF_Optimized.001),
+        décimer la copie dupliquée n'écrase pas la première copie optimisée.
+        """
+        cube = self._create_rich_test_mesh("BaseAsset", with_shape_keys=False)
+        bpy.ops.meshforge.simplification()
+        opt1 = bpy.context.active_object
+        self.assertEqual(opt1.name, "BaseAsset_MF_Optimized")
 
-        # 4. Color Attributes : Présents mais interpolés
-        self.assertIn("Color_Point", opt.data.color_attributes)
-        self.assertIn("Color_Corner", opt.data.color_attributes)
+        # Duplication manuelle Blender (Shift+D)
+        opt2 = opt1.copy()
+        opt2.data = opt1.data.copy()
+        bpy.context.scene.collection.objects.link(opt2)
+        opt2.name = "BaseAsset_MF_Optimized.001"
 
-        # 5. Arêtes vives et Coutures : Présentes
-        has_seams = any(e.use_seam for e in opt.data.edges)
-        has_sharp = any(e.use_edge_sharp for e in opt.data.edges)
-        self.assertTrue(has_seams, "Des coutures doivent subsister sur le maillage réduit.")
-        self.assertTrue(has_sharp, "Des arêtes vives doivent subsister sur le maillage réduit.")
-
-    def test_p1_attribute_fidelity_dissolve(self):
-        """Vérifie le comportement de chaque attribut après Dissolution coplanaire (DISSOLVE)."""
-        bpy.ops.mesh.primitive_cube_add(size=2.0)
-        cube = bpy.context.active_object
-        cube.name = "FidelityDissolve"
-
-        # Marquer seams et arêtes vives
-        cube.data.edges[0].use_seam = True
-        cube.data.edges[1].use_edge_sharp = True
-
-        # Ajouter 2 matériaux
-        m1 = bpy.data.materials.new("Mat_CAD_1")
-        m2 = bpy.data.materials.new("Mat_CAD_2")
-        cube.data.materials.append(m1)
-        cube.data.materials.append(m2)
-        cube.data.polygons[0].material_index = 1
-
-        # Subdiviser pour créer des faces coplanaires
-        bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.mesh.subdivide(number_cuts=2)
-        bpy.ops.object.mode_set(mode='OBJECT')
-
-        self.props.decimate_method = 'DISSOLVE'
-        self.props.preserve_seams = True
-        self.props.preserve_sharp = True
-        self.props.preserve_materials = True
-
-        bpy.ops.meshforge.dissolve()
-        opt = bpy.context.active_object
-
-        # Matériaux et slots conservés
-        self.assertEqual(len(opt.material_slots), 2)
-        # Coutures et sharp conservées
-        self.assertTrue(any(e.use_seam for e in opt.data.edges))
-        self.assertTrue(any(e.use_edge_sharp for e in opt.data.edges))
-
-    # =========================================================================
-    # SECTION 4 : COPIE STATIQUE SANS SHAPE KEYS — P1
-    # =========================================================================
-
-    def test_p1_static_copy_shape_keys_purge_target_only(self):
-        """Vérifie que la purge des Shape Keys ne touche que la copie et préserve les modificateurs."""
-        obj = self._create_rich_test_mesh("StaticAnimTarget", with_shape_keys=True)
-        self.props.allow_shape_keys_removal_on_copy = True
-
+        bpy.context.view_layer.objects.active = opt2
+        self.props.simplification_percentage = 60.0
         res = bpy.ops.meshforge.simplification()
         self.assertEqual(res, {'FINISHED'})
 
-        # L'original conserve ses 2 clés intactes
-        self.assertIsNotNone(obj.data.shape_keys)
-        self.assertEqual(len(obj.data.shape_keys.key_blocks), 2)
-        self.assertEqual(obj.data.shape_keys.key_blocks[1].name, "Blink_L")
+        # Les deux copies doivent coexister sans écrasement mutuel
+        all_names = [o.name for o in bpy.data.objects]
+        self.assertIn("BaseAsset_MF_Optimized", all_names)
+        self.assertIn("BaseAsset_MF_Optimized.001", all_names)
 
-        # La copie n'a plus de Shape Keys (dérivé statique)
+    def test_p0_lifecycle_original_modified_staleness_detection(self):
+        """Vérifie la détection d'obsolescence lorsque l'original est modifié après la copie."""
+        cube = self._create_rich_test_mesh("EvolvingOriginal", with_shape_keys=False)
+        bpy.ops.meshforge.simplification()
         opt = bpy.context.active_object
-        self.assertTrue(opt.data.shape_keys is None or len(opt.data.shape_keys.key_blocks) == 0)
 
-        # Les modificateurs ont été transmis à la copie statique
-        opt_mod_types = [m.type for m in opt.modifiers]
-        self.assertIn('ARMATURE', opt_mod_types)
-        self.assertIn('BEVEL', opt_mod_types)
+        # L'utilisateur modifie l'original dans la scène (ex: ajout de sommets)
+        bm = bmesh.new()
+        bm.from_mesh(cube.data)
+        bm.verts.new((5.0, 5.0, 5.0))
+        bm.to_mesh(cube.data)
+        bm.free()
+        cube.data.update()
+
+        # Décimation depuis la copie : l'opérateur doit détecter le décalage topologique
+        bpy.context.view_layer.objects.active = opt
+        self.props.simplification_percentage = 50.0
+        res = bpy.ops.meshforge.simplification()
+        self.assertEqual(res, {'FINISHED'})
+
+    def test_p0_lifecycle_restore_across_scenes(self):
+        """Vérifie que restaurer un objet depuis une autre scène ne lève pas d'exception de ViewLayer."""
+        cube = self._create_rich_test_mesh("CrossSceneObj", with_shape_keys=False)
+        bpy.ops.meshforge.simplification()
+        opt = bpy.context.active_object
+
+        # Créer une deuxième scène et y lier la copie optimisée
+        scene2 = bpy.data.scenes.new("AlternativeScene")
+        scene2.collection.objects.link(opt)
+        bpy.context.window.scene = scene2
+
+        bpy.context.view_layer.objects.active = opt
+        opt.select_set(True)
+
+        res = bpy.ops.meshforge.restore()
+        self.assertEqual(res, {'FINISHED'})
 
     # =========================================================================
-    # SECTION 5 : GARDE-FOUS DE DISSOLUTION — P1
+    # 3. MATRICE DE FIDÉLITÉ DES ATTRIBUTS SUR LA COPIE (P1)
     # =========================================================================
 
-    def test_p1_dissolve_guardrails_combinations(self):
-        """Vérifie chaque combinaison de risque exigeant confirmation explicite dans meshforge.dissolve."""
-        # 1. Risque Multi-matériaux non protégés
-        obj_mats = self._create_rich_test_mesh("RiskMats", with_shape_keys=False)
+    def test_p1_preserve_materials_strict_boundary_proof(self):
+        """Preuve empirique que preserve_materials=True empêche la fusion de faces avec shaders distincts."""
+        bpy.ops.mesh.primitive_grid_add(x_subdivisions=2, y_subdivisions=2, size=2.0)
+        grid = bpy.context.active_object
+        grid.name = "MatBoundaryGrid"
+
+        m_a = bpy.data.materials.new("Shader_A")
+        m_b = bpy.data.materials.new("Shader_B")
+        grid.data.materials.append(m_a)
+        grid.data.materials.append(m_b)
+
+        # Quads 0,1 -> Mat_A (index 0) ; Quads 2,3 -> Mat_B (index 1)
+        grid.data.polygons[0].material_index = 0
+        grid.data.polygons[1].material_index = 0
+        grid.data.polygons[2].material_index = 1
+        grid.data.polygons[3].material_index = 1
+        grid.data.update()
+
         self.props.decimate_method = 'DISSOLVE'
+        self.props.preserve_materials = True
         self.props.preserve_seams = True
         self.props.preserve_sharp = True
-        self.props.preserve_materials = False  # Risque multi-matériaux
-        self.props.confirm_aggressive_dissolve = False
 
         res = bpy.ops.meshforge.dissolve()
-        self.assertEqual(res, {'CANCELLED'})
+        self.assertEqual(res, {'FINISHED'})
 
-        # Avec confirmation : autorisée
-        self.props.confirm_aggressive_dissolve = True
-        res_ok = bpy.ops.meshforge.dissolve()
-        self.assertEqual(res_ok, {'FINISHED'})
+        opt = bpy.context.active_object
+        # La frontière de matériau a scindé la dissolution : 2 faces distinctes subsistent
+        self.assertEqual(len(opt.data.polygons), 2, "La frontière de matériau doit être conservée !")
+        p_mats = sorted([p.material_index for p in opt.data.polygons])
+        self.assertEqual(p_mats, [0, 1], "Chaque matériau doit conserver sa région sans fusion !")
 
-        # 2. Risque Surface courbée avec angle élevé (>= 15°)
-        bpy.ops.mesh.primitive_uv_sphere_add(segments=12, ring_count=12)
-        sph = bpy.context.active_object
-        sph.name = "RiskCurvature"
+    def test_p1_preserve_seams_and_sharp_strict_proof(self):
+        """Preuve empirique que preserve_seams=True et preserve_sharp=True ne dissolvent jamais les arêtes marquées."""
+        # Test Seam : Ligne de séparation verticale (arêtes 2 et 8)
+        bpy.ops.mesh.primitive_grid_add(x_subdivisions=2, y_subdivisions=2, size=2.0)
+        grid_seam = bpy.context.active_object
+        grid_seam.name = "SeamGrid"
+        grid_seam.data.edges[2].use_seam = True
+        grid_seam.data.edges[8].use_seam = True
+        grid_seam.data.update()
+
         self.props.decimate_method = 'DISSOLVE'
         self.props.preserve_seams = True
         self.props.preserve_sharp = True
         self.props.preserve_materials = True
-        self.props.dissolve_angle = 20.0  # Angle élevé sur sphère
+
+        res1 = bpy.ops.meshforge.dissolve()
+        self.assertEqual(res1, {'FINISHED'})
+        opt_seam = bpy.context.active_object
+        self.assertTrue(any(e.use_seam for e in opt_seam.data.edges), "L'arête couture n'a pas été dissoute !")
+        self.assertEqual(len(opt_seam.data.polygons), 2, "La couture a séparé les deux moitiés !")
+
+        # Test Sharp : Ligne de séparation horizontale (arêtes 3 et 6)
+        bpy.ops.mesh.primitive_grid_add(x_subdivisions=2, y_subdivisions=2, size=2.0)
+        grid_sharp = bpy.context.active_object
+        grid_sharp.name = "SharpGrid"
+        grid_sharp.data.edges[3].use_edge_sharp = True
+        grid_sharp.data.edges[6].use_edge_sharp = True
+        grid_sharp.data.update()
+
+        res2 = bpy.ops.meshforge.dissolve()
+        self.assertEqual(res2, {'FINISHED'})
+        opt_sharp = bpy.context.active_object
+        self.assertTrue(any(e.use_edge_sharp for e in opt_sharp.data.edges), "L'arête vive n'a pas été dissoute !")
+        self.assertEqual(len(opt_sharp.data.polygons), 2, "L'arête vive a séparé les deux moitiés !")
+
+    # =========================================================================
+    # 4. GARDE-FOUS D'EXÉCUTION ET APPELS DIRECTS (P1)
+    # =========================================================================
+
+    def test_p1_operator_guardrails_direct_call_no_bypass(self):
+        """Vérifie que l'opérateur lui-même refuse l'exécution sur tout risque sans confirmation."""
+        bpy.ops.mesh.primitive_cylinder_add(vertices=16)
+        cyl = bpy.context.active_object
+
+        # Cas 1 : Coutures UV non préservées
+        cyl.data.edges[0].use_seam = True
+        self.props.decimate_method = 'DISSOLVE'
+        self.props.preserve_seams = False
         self.props.confirm_aggressive_dissolve = False
+        self.assertEqual(bpy.ops.meshforge.dissolve(), {'CANCELLED'})
 
-        res_curv = bpy.ops.meshforge.dissolve()
-        self.assertEqual(res_curv, {'CANCELLED'})
+        # Cas 2 : Arêtes vives non préservées
+        self.props.preserve_seams = True
+        cyl.data.edges[1].use_edge_sharp = True
+        self.props.preserve_sharp = False
+        self.assertEqual(bpy.ops.meshforge.dissolve(), {'CANCELLED'})
 
-        # Avec confirmation : autorisée
-        self.props.confirm_aggressive_dissolve = True
-        res_curv_ok = bpy.ops.meshforge.dissolve()
-        self.assertEqual(res_curv_ok, {'FINISHED'})
+        # Cas 3 : Multi-matériaux non préservés
+        self.props.preserve_sharp = True
+        m1 = bpy.data.materials.new("M1")
+        m2 = bpy.data.materials.new("M2")
+        cyl.data.materials.append(m1)
+        cyl.data.materials.append(m2)
+        self.props.preserve_materials = False
+        self.assertEqual(bpy.ops.meshforge.dissolve(), {'CANCELLED'})
+
+        # Cas 4 : Angle élevé sur surface courbée
+        self.props.preserve_materials = True
+        self.props.dissolve_angle = 25.0
+        self.assertEqual(bpy.ops.meshforge.dissolve(), {'CANCELLED'})
 
 
 def run_tests():

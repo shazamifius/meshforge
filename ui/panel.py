@@ -78,6 +78,21 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         if "_MF_Optimized" in obj.name:
             box_res = layout.box()
             box_res.label(text="Objet résultat actif :", icon='INFO')
+
+            # Détection d'obsolescence par rapport à la source
+            root_source = obj.get("_mf_source_ptr", None)
+            if root_source and root_source.name in bpy.data.objects and root_source.data:
+                orig_sig = f"{len(root_source.data.vertices)}v_{len(root_source.data.edges)}e_{len(root_source.data.polygons)}f"
+                saved_sig = obj.get("_mf_source_mesh_version", "")
+                if saved_sig and orig_sig != saved_sig:
+                    b_stale = box_res.box()
+                    b_stale.alert = True
+                    b_stale.label(text="Attention : L'original a été modifié !", icon='ERROR')
+                    c_st = b_stale.column(align=True)
+                    c_st.scale_y = 0.8
+                    c_st.label(text=f"L'original '{root_source.name}' a évolué depuis cette copie.")
+                    c_st.label(text="Restaurez ou ré-optimisez depuis l'original pour actualiser.")
+
             box_res.operator("meshforge.restore", text="Restaurer l'original", icon='RECOVER_LAST')
 
         # ---------------------------------------------------------

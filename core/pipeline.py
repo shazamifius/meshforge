@@ -20,8 +20,8 @@ from .simplification import execute_simplification
 
 def duplicate_object_non_destructive(source_obj: bpy.types.Object, suffix: str = "_MF_Optimized") -> bpy.types.Object:
     """Duplique l'objet et ses données de maillage de manière strictement indépendante."""
-    # Si l'objet est déjà un résultat optimisé non-destructif, réutiliser cet objet
-    if source_obj.name.endswith(suffix):
+    # Si l'objet est déjà un résultat optimisé non-destructif (même dupliqué manuellement .001), le réutiliser
+    if suffix in source_obj.name:
         return source_obj
 
     new_mesh = source_obj.data.copy()
@@ -42,6 +42,9 @@ def duplicate_object_non_destructive(source_obj: bpy.types.Object, suffix: str =
 
     new_obj["_mf_source_ptr"] = root_source_obj
     new_obj["_mf_source_object"] = root_source_name
+    # Signature topologique de la source pour détection d'obsolescence (staleness)
+    if source_obj.data:
+        new_obj["_mf_source_mesh_version"] = f"{len(source_obj.data.vertices)}v_{len(source_obj.data.edges)}e_{len(source_obj.data.polygons)}f"
     base_target_name = f"{root_source_name}{suffix}"
 
     # Si un ancien résultat portant ce nom existe déjà et n'est pas l'objet source courant,

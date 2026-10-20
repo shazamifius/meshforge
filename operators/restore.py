@@ -26,7 +26,18 @@ class MESHFORGE_OT_restore(bpy.types.Operator):
             self.report({'WARNING'}, "MeshForge : La restauration requiert le mode Objet. Veuillez repasser en mode Objet (Touche Tab).")
             return {'CANCELLED'}
 
+        has_ptr = ("_mf_source_ptr" in current_obj)
         orig_obj = current_obj.get("_mf_source_ptr")
+
+        if has_ptr and orig_obj is None:
+            # L'objet référencé initialement a été détruit : refuser de binder sur un éventuel objet homonyme récent
+            self.report(
+                {'WARNING'},
+                "MeshForge : L'objet source original a été supprimé de la scène. "
+                "Le résultat optimisé est conservé pour éviter toute perte de géométrie."
+            )
+            return {'CANCELLED'}
+
         if not orig_obj or orig_obj.name not in bpy.data.objects:
             orig_name = current_obj.get("_mf_source_object", "")
             if not orig_name or orig_name not in bpy.data.objects:
@@ -43,10 +54,11 @@ class MESHFORGE_OT_restore(bpy.types.Operator):
             )
             return {'CANCELLED'}
 
-        # Retrouver et restaurer l'objet original
+        # Retrouver et restaurer l'objet original (avec garde-fou de vue/scène)
         orig_obj.hide_set(False)
-        context.view_layer.objects.active = orig_obj
-        orig_obj.select_set(True)
+        if orig_obj.name in context.view_layer.objects:
+            context.view_layer.objects.active = orig_obj
+            orig_obj.select_set(True)
 
         # Supprimer le résultat courant
         mesh_to_delete = current_obj.data
