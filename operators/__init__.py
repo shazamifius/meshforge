@@ -23,6 +23,7 @@ from .topology_inspect import (
 )
 from .conservative_clean_op import MESHFORGE_OT_conservative_clean
 from .ngon_cut_op import MESHFORGE_OT_cut_ngons
+from .quadrangulate_op import MESHFORGE_OT_quadrangulate
 
 classes = (
     MESHFORGE_OT_optimize,
@@ -32,6 +33,7 @@ classes = (
     MESHFORGE_OT_clear_defect_view,
     MESHFORGE_OT_conservative_clean,
     MESHFORGE_OT_cut_ngons,
+    MESHFORGE_OT_quadrangulate,
     MESHFORGE_OT_repair,
     MESHFORGE_OT_manifold,
     MESHFORGE_OT_dissolve,

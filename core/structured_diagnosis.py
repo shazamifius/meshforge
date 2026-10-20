@@ -694,7 +694,10 @@ def evaluate_structured_diagnosis(
                 element_type="FACE",
                 explanation=f"Le maillage contient {facts['tris_count']} triangle(s) au milieu de {facts['quads_count']} quad(s).",
                 consequence="Un triangle interrompt la trajectoire d'une boucle d'arêtes (Edge Loop) et peut créer un pli rigide au pliage.",
-                recommendation="Vérifier que les triangles sont placés dans des zones neutres non déformées (ex: sommet du crâne)."
+                recommendation="Fusionner les paires de triangles coplanaires en quads réguliers (Quadrangulation ciblée).",
+                compatible_action="meshforge.quadrangulate",
+                action_name="Quadrangulation ciblée",
+                action_risk="Risque Faible"
             ))
 
         # 4.2 Pôles à haute valence (valence >= 6)
@@ -846,6 +849,25 @@ def evaluate_structured_diagnosis(
             "justification": f"Résout : {', '.join(reasons)}.",
             "data_impact": "Triangulation Beauty / Ear-Clipping. Préserve les UVs et matériaux.",
             "safety_note": f"Les cas ambigus ({facts['ngons_ambiguous_count']}) sont refusés et isolés pour découpe manuelle."
+        })
+
+    # Action 3 : Quadrangulation ciblée (si paires de triangles coplanaires et profil adapté)
+    should_quadrangulate = (
+        facts["tris_count"] >= 2 and
+        resolved_profile in ("DEFORMABLE_CHAR", "HARD_SURFACE", "GENERAL") and
+        len(recommended_actions) < 3
+    )
+    if should_quadrangulate:
+        recommended_actions.append({
+            "id": "quadrangulate",
+            "operator": "meshforge.quadrangulate",
+            "label": f"Quadranguler les triangles coplanaires ({facts['tris_count']} tris)",
+            "icon": 'SNAP_FACE',
+            "risk_badge": "[Risque Faible]",
+            "risk_level": "LOW",
+            "justification": f"Fusionne les paires de triangles coplanaires ({facts['tris_count']} triangles détectés) en quads réguliers.",
+            "data_impact": "Préserve strictement les coutures UV, arêtes vives, matériaux et l'aire du maillage.",
+            "safety_note": "Transaction réversible : rollback automatique en cas de déviation géométrique."
         })
 
     # Compteurs par sévérité

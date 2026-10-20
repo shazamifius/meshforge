@@ -13,6 +13,11 @@ from .pipeline import run_meshforge_pipeline, duplicate_object_non_destructive
 from .report import format_report_as_text, export_report_to_file
 from .topology_diagnosis import diagnose_topology
 from .visualizer import select_defect, zoom_to_defect, apply_color_inspection, clear_inspection_view
+from .quadrangulator import (
+    quad_orthogonality_score,
+    check_triangle_pair_compatibility,
+    execute_targeted_quadrangulation,
+)
 from .registration_utils import (
     is_class_registered,
     safe_register_class,
@@ -41,6 +46,9 @@ __all__ = [
     "zoom_to_defect",
     "apply_color_inspection",
     "clear_inspection_view",
+    "quad_orthogonality_score",
+    "check_triangle_pair_compatibility",
+    "execute_targeted_quadrangulation",
     "is_class_registered",
     "safe_register_class",
     "safe_unregister_class",

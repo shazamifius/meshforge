@@ -242,6 +242,25 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                 c_info2.label(text="• Ear-clipping et Beauty triangulation avec préservation des UVs.")
                 c_info2.label(text="• Rollback automatique en cas d'altération.")
 
+            # Action 3: Quadrangulation ciblée (Tris -> Quads)
+            has_candidate_tris = facts.get("tris_count", 0) >= 2
+            if has_candidate_tris and shown_actions < 3 and resolved_profile in ("DEFORMABLE_CHAR", "HARD_SURFACE", "GENERAL"):
+                shown_actions += 1
+                b_act3 = box_acts.box()
+                r3 = b_act3.row()
+                r3.label(text="Quadrangulation ciblée", icon='SNAP_FACE')
+                r3.label(text="[Risque Faible]", icon='CHECKMARK')
+
+                col_b3 = b_act3.column(align=True)
+                col_b3.scale_y = 1.2
+                col_b3.operator("meshforge.quadrangulate", text=f"Quadranguler les triangles coplanaires ({facts.get('tris_count', 0)} tris)", icon='SNAP_FACE')
+
+                c_info3 = b_act3.column(align=True)
+                c_info3.scale_y = 0.75
+                c_info3.label(text="• Fusionne les paires de triangles coplanaires en quads réguliers.")
+                c_info3.label(text="• Préserve strictement les coutures UV, arêtes vives et matériaux.")
+                c_info3.label(text="• Rollback automatique en cas de déviation géométrique.")
+
             if shown_actions == 0:
                 b_ok = box_acts.box()
                 b_ok.label(text="Aucune action corrective urgente requise.", icon='CHECKMARK')
@@ -589,7 +608,9 @@ class VIEW3D_PT_meshforge_topology(VIEW3D_PT_meshforge_base, bpy.types.Panel):
             col.prop(props, "preserve_topology_attributes")
 
         layout.separator()
-        layout.operator("meshforge.topology", text="Exécuter Topologie", icon='MOD_REMESH')
+        layout.operator("meshforge.quadrangulate", text="Quadrangulation ciblée sécurisée", icon='SNAP_FACE')
+        layout.separator()
+        layout.operator("meshforge.topology", text="Exécuter Topologie complète", icon='MOD_REMESH')
 
 
 class VIEW3D_PT_meshforge_normals(VIEW3D_PT_meshforge_base, bpy.types.Panel):

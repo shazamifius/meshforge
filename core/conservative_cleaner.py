@@ -65,12 +65,12 @@ class MeshSnapshot:
 
     def free(self):
         """Libère le maillage de secours temporaire en mémoire Blender."""
-        if self.backup_mesh and self.backup_mesh.name in bpy.data.meshes:
-            try:
+        try:
+            if self.backup_mesh and self.backup_mesh.name in bpy.data.meshes:
                 bpy.data.meshes.remove(self.backup_mesh)
-            except Exception:
-                pass
-            self.backup_mesh = None
+        except Exception:
+            pass
+        self.backup_mesh = None
 
     def __del__(self):
         self.free()
