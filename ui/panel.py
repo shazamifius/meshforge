@@ -57,6 +57,9 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         else:
             real_tris = sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
 
+        mode = props.asset_target_mode
+        resolved_profile = PROFILE_ALIAS.get(mode, mode)
+
         grid = box_obj.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
         grid.label(text=f"Sommets : {len(mesh.vertices):,}")
         grid.label(text=f"Arêtes : {len(mesh.edges):,}")
@@ -74,47 +77,8 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
             col_we.label(text="Repassez en mode Objet (Touche Tab) pour lancer")
             col_we.label(text="l'analyse et les réparations géométriques sûres.")
 
-        # Bouton Restaurer si objet optimisé actif
-        if "_MF_Optimized" in obj.name:
-            box_res = layout.box()
-            box_res.label(text="Objet résultat actif :", icon='INFO')
-
-            # Détection d'obsolescence par rapport à la source
-            root_source = obj.get("_mf_source_ptr", None)
-            if root_source and root_source.name in bpy.data.objects and root_source.data:
-                orig_sig = f"{len(root_source.data.vertices)}v_{len(root_source.data.edges)}e_{len(root_source.data.polygons)}f"
-                saved_sig = obj.get("_mf_source_mesh_version", "")
-                if saved_sig and orig_sig != saved_sig:
-                    b_stale = box_res.box()
-                    b_stale.alert = True
-                    b_stale.label(text="Attention : L'original a été modifié !", icon='ERROR')
-                    c_st = b_stale.column(align=True)
-                    c_st.scale_y = 0.8
-                    c_st.label(text=f"L'original '{root_source.name}' a évolué depuis cette copie.")
-                    c_st.label(text="Restaurez ou ré-optimisez depuis l'original pour actualiser.")
-
-            box_res.operator("meshforge.restore", text="Restaurer l'original", icon='RECOVER_LAST')
-
         # ---------------------------------------------------------
-        # 2. OBJECTIF DE L'ASSET (LES 5 PROFILS)
-        # ---------------------------------------------------------
-        box_mode = layout.box()
-        box_mode.label(text="Objectif de l'Asset :", icon='TRACKING')
-        col_m = box_mode.column(align=True)
-        col_m.prop(props, "asset_target_mode", text="")
-
-        mode = props.asset_target_mode
-        resolved_profile = PROFILE_ALIAS.get(mode, mode)
-        p_info = PROFILES.get(resolved_profile, PROFILES.get("GENERAL", {}))
-
-        box_exp = box_mode.box()
-        col_exp = box_exp.column(align=True)
-        col_exp.scale_y = 0.85
-        col_exp.label(text=f"{p_info.get('name', 'Profil')} :", icon=p_info.get('icon', 'HELP'))
-        col_exp.label(text=p_info.get('summary', ''))
-
-        # ---------------------------------------------------------
-        # 3. SECTION 1 : CLEAN — NETTOYER ET RÉPARER (OUVERTE PAR DÉFAUT)
+        # 2. SECTION 1 : CLEAN — NETTOYER ET RÉPARER (OUVERTE PAR DÉFAUT)
         # ---------------------------------------------------------
         box_clean = layout.box()
         row_cl = box_clean.row(align=True)
@@ -122,14 +86,15 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         row_cl.prop(props, "ui_section_clean_expanded", text="CLEAN — Nettoyer et réparer", icon=icon_cl, emboss=False)
 
         if props.ui_section_clean_expanded:
-            # 3.1 Diagnostic & Inspection 3D
-            box_diag_ctrl = box_clean.box()
-            col_diag_btn = box_diag_ctrl.column(align=True)
+            # 2.1 Étape 1 : Analyse initiale & Inspection 3D
+            box_step1 = box_clean.box()
+            box_step1.label(text="1. Analyser le maillage :", icon='VIEWZOOM')
+            col_diag_btn = box_step1.column(align=True)
             col_diag_btn.scale_y = 1.3
             col_diag_btn.operator("meshforge.analyze_topology", text="Analyser le maillage", icon='VIEWZOOM')
 
             is_wire = getattr(obj, "show_wire", False)
-            row_tools = box_diag_ctrl.row(align=True)
+            row_tools = box_step1.row(align=True)
             row_tools.operator(
                 "meshforge.toggle_wireframe",
                 text="Masquer le filaire" if is_wire else "Afficher le filaire",
@@ -138,44 +103,54 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
             )
             row_tools.operator("meshforge.clear_defect_view", text="Effacer l'inspection", icon='PANEL_CLOSE')
 
-            # 3.2 Résumé des constats et santé globale
             diag = get_active_diagnosis(obj.name)
             is_stale, stale_reason = check_diagnosis_staleness(obj)
 
-            if diag and is_stale:
-                box_stale = box_clean.box()
-                box_stale.alert = True
-                row_st = box_stale.row(align=True)
-                row_st.label(text="Diagnostic à actualiser", icon='ERROR')
-                col_st = box_stale.column(align=True)
-                col_st.scale_y = 0.85
-                col_st.label(text="La géométrie a été modifiée depuis la dernière analyse.")
-                if stale_reason:
-                    col_st.label(text=f"Motif : {stale_reason}")
-                col_act_st = box_stale.column(align=True)
-                col_act_st.scale_y = 1.2
-                col_act_st.operator("meshforge.analyze_topology", text="Actualiser le diagnostic maintenant", icon='FILE_REFRESH')
+            if not diag or not diag.get("valid"):
+                b_inv = box_clean.box()
+                b_inv.label(text="Analyse requise pour commencer", icon='INFO')
+                c_inv = b_inv.column(align=True)
+                c_inv.scale_y = 0.85
+                c_inv.label(text="Cliquez sur 'Analyser le maillage' ci-dessus pour révéler")
+                c_inv.label(text="la santé géométrique et obtenir des recommandations ciblées.")
+            else:
+                # Alerte de péremption si la géométrie a changé
+                if is_stale:
+                    box_stale = box_clean.box()
+                    box_stale.alert = True
+                    row_st = box_stale.row(align=True)
+                    row_st.label(text="Diagnostic à actualiser", icon='ERROR')
+                    col_st = box_stale.column(align=True)
+                    col_st.scale_y = 0.85
+                    col_st.label(text="La géométrie a été modifiée depuis la dernière analyse.")
+                    if stale_reason:
+                        col_st.label(text=f"Motif : {stale_reason}")
+                    col_act_st = box_stale.column(align=True)
+                    col_act_st.scale_y = 1.2
+                    col_act_st.operator("meshforge.analyze_topology", text="Actualiser le diagnostic maintenant", icon='FILE_REFRESH')
 
-            if diag and diag.get("valid") and not is_stale:
                 structured = diag.get("structured", {})
                 findings = diag.get("findings", [])
                 health = structured.get("health", {})
                 total_defects = health.get("defects_count", 0)
                 total_risks = health.get("risks_count", 0)
                 total_obs = health.get("observations_count", 0)
+                rec_groups = structured.get("recommendation_groups", {})
 
-                box_health = box_clean.box()
-                row_hh = box_health.row()
+                # 2.2 Étape 2 : Constats factuels de géométrie (indépendants de l'objectif)
+                box_step2 = box_clean.box()
+                box_step2.label(text="2. Constats factuels de géométrie :", icon='SOLO_ON')
+
+                row_hh = box_step2.row()
                 if health.get("status") == "HEALTHY":
-                    row_hh.label(text="Santé : Maillage sain pour ce profil", icon='CHECKMARK')
+                    row_hh.label(text="Santé : Maillage géométriquement sain", icon='CHECKMARK')
                 elif health.get("status") == "CRITICAL":
                     row_hh.alert = True
                     row_hh.label(text=f"Santé : {total_defects} anomalie(s) critique(s)", icon='ERROR')
                 else:
                     row_hh.label(text=f"Santé : {total_risks} point(s) de vigilance", icon='INFO')
 
-                # Pastilles compactes sans pavé verbeux (UX & Règle 4)
-                row_counts = box_health.row(align=True)
+                row_counts = box_step2.row(align=True)
                 r_def = row_counts.row(align=True)
                 if total_defects > 0:
                     r_def.alert = True
@@ -183,106 +158,8 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                 row_counts.label(text=f"Risques : {total_risks}", icon='HELP')
                 row_counts.label(text=f"Observations : {total_obs}", icon='INFO')
 
-                # 3.3 Actions prioritaires recommandées
-                facts = diag.get("facts", {})
-                has_degeneracies = (
-                    facts.get("zero_area_faces_count", 0) > 0 or
-                    facts.get("degenerate_edges_count", 0) > 0 or
-                    facts.get("isolated_verts_count", 0) > 0 or
-                    facts.get("loose_edges_count", 0) > 0
-                )
-                has_ngons = (facts.get("ngons_count", 0) > 0)
-                has_internal_walls = (facts.get("internal_walls_count", 0) > 0)
-                has_candidate_tris = (facts.get("tris_count", 0) >= 2)
-
-                box_acts = box_clean.box()
-                box_acts.label(text="Actions recommandées :", icon='TOOL_SETTINGS')
-
-                shown_actions = 0
-
-                # Action 1: Nettoyage conservateur sûr
-                if has_degeneracies:
-                    shown_actions += 1
-                    b_act1 = box_acts.box()
-                    r1 = b_act1.row()
-                    r1.label(text="Nettoyage conservateur sûr", icon='BRUSH_DATA')
-                    r1.label(text="[Risque Faible]", icon='CHECKMARK')
-
-                    col_b1 = b_act1.column(align=True)
-                    col_b1.scale_y = 1.2
-                    col_b1.operator("meshforge.conservative_clean", text="Nettoyer les dégénérescences", icon='BRUSH_DATA')
-
-                    c_info1 = b_act1.column(align=True)
-                    c_info1.scale_y = 0.75
-                    c_info1.label(text="• Supprime faces nulles, arêtes sans face et éléments orphelins.")
-                    c_info1.label(text="• Fusionne les doublons en protégeant les coutures UV.")
-                    c_info1.label(text="• 100% sans décimation : géométrie utile préservée.")
-
-                # Action 2: Parois internes mitoyennes (D2.4)
-                if has_internal_walls:
-                    shown_actions += 1
-                    b_act_iw = box_acts.box()
-                    r_iw = b_act_iw.row()
-                    r_iw.label(text="Parois internes mitoyennes", icon='X')
-                    r_iw.label(text="[Risque Contrôlé]", icon='INFO')
-
-                    col_b_iw = b_act_iw.column(align=True)
-                    col_b_iw.scale_y = 1.2
-                    row_iw_btns = col_b_iw.row(align=True)
-                    row_iw_btns.operator("meshforge.select_internal_walls", text="Inspecter (Zoom)", icon='VIEWZOOM')
-                    row_iw_btns.operator("meshforge.remove_internal_walls", text=f"Supprimer ({facts.get('internal_walls_count', 0)})", icon='X')
-
-                    c_info_iw = b_act_iw.column(align=True)
-                    c_info_iw.scale_y = 0.75
-                    c_info_iw.label(text="• Supprime les faces occluses reliant deux cellules fermées.")
-                    c_info_iw.label(text="• Rétablit l'étanchéité manifold sans ouvrir de trou.")
-
-                # Action 3: Découpe des N-gones
-                if has_ngons and resolved_profile in ("GAME_ASSET", "DEFORMABLE_CHAR", "GENERAL"):
-                    shown_actions += 1
-                    b_act2 = box_acts.box()
-                    r2 = b_act2.row()
-                    r2.label(text="Découper les N-gones", icon='MOD_TRIANGULATE')
-                    r2.label(text="[Risque Contrôlé]", icon='INFO')
-
-                    col_b2 = b_act2.column(align=True)
-                    col_b2.scale_y = 1.2
-                    col_b2.operator("meshforge.cut_ngons", text=f"Découper les {facts.get('ngons_count', 0)} N-gones", icon='MOD_TRIANGULATE')
-
-                    c_info2 = b_act2.column(align=True)
-                    c_info2.scale_y = 0.75
-                    c_info2.label(text="• Ear-clipping et Beauty triangulation avec préservation des UVs.")
-
-                # Action 4: Quadrangulation ciblée
-                if has_candidate_tris and shown_actions < 3 and resolved_profile in ("DEFORMABLE_CHAR", "HARD_SURFACE", "GENERAL"):
-                    shown_actions += 1
-                    b_act3 = box_acts.box()
-                    r3 = b_act3.row()
-                    r3.label(text="Quadrangulation ciblée", icon='SNAP_FACE')
-                    r3.label(text="[Risque Faible]", icon='CHECKMARK')
-
-                    col_b3 = b_act3.column(align=True)
-                    col_b3.scale_y = 1.2
-                    col_b3.operator("meshforge.quadrangulate", text=f"Quadranguler les triangles ({facts.get('tris_count', 0)} tris)", icon='SNAP_FACE')
-
-                    c_info3 = b_act3.column(align=True)
-                    c_info3.scale_y = 0.75
-                    c_info3.label(text="• Fusionne les paires de triangles coplanaires en quads réguliers.")
-
-                if shown_actions == 0:
-                    b_ok = box_acts.box()
-                    b_ok.label(text="Aucune action corrective urgente requise.", icon='CHECKMARK')
-                    b_ok.label(text="La géométrie respecte les critères du profil actif.")
-
-                # 3.4 Amélioration ciblée de la topologie
-                box_topo = box_clean.box()
-                box_topo.label(text="Amélioration ciblée de la topologie :", icon='SNAP_FACE')
-                col_topo_btns = box_topo.column(align=True)
-                col_topo_btns.operator("meshforge.cut_ngons", text="Découper les N-gones (Convexes / Concaves)", icon='MOD_TRIANGULATE')
-                col_topo_btns.operator("meshforge.quadrangulate", text="Quadranguler les triangles (Tris -> Quads)", icon='SNAP_FACE')
-
-                # 3.5 Tableau détaillé des constats (repliable)
-                box_table = box_clean.box()
+                # Tableau détaillé repliable des constats
+                box_table = box_step2.box()
                 r_t_head = box_table.row(align=True)
                 r_t_head.prop(
                     props,
@@ -349,8 +226,164 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
                     if len(filtered_findings) > 8:
                         box_table.label(text=f"... et {len(filtered_findings) - 8} autre(s) constat(s).")
-            elif not diag or not diag.get("valid"):
-                box_clean.label(text="Cliquez sur 'Analyser le maillage' pour lancer l'audit.", icon='INFO')
+
+                # 2.3 Étape 3 : Définir l'objectif pour cet asset
+                box_step3 = box_clean.box()
+                box_step3.label(text="3. Objectif pour cet asset :", icon='TRACKING')
+                col_m = box_step3.column(align=True)
+                col_m.prop(props, "asset_target_mode", text="")
+
+                mode = props.asset_target_mode
+                resolved_profile = PROFILE_ALIAS.get(mode, mode)
+                p_info = PROFILES.get(resolved_profile, PROFILES.get("GENERAL", {}))
+
+                box_exp = box_step3.box()
+                col_exp = box_exp.column(align=True)
+                col_exp.scale_y = 0.85
+                col_exp.label(text=f"{p_info.get('name', 'Profil')} :", icon=p_info.get('icon', 'HELP'))
+                col_exp.label(text=p_info.get('summary', ''))
+
+                # Contraintes complémentaires
+                box_constraints = box_step3.box()
+                box_constraints.label(text="Contraintes complémentaires :", icon='CHECKBOX_HLT')
+                col_c = box_constraints.column(align=True)
+                col_c.prop(props, "constraint_strict_manifold", text="Étanchéité manifold stricte")
+                col_c.prop(props, "constraint_quads_only", text="Exiger 100% quads (sans triangles ni N-gones)")
+
+                # 2.4 Étape 4 : Recommandations claires (Les 4 Catégories)
+                box_step4 = box_clean.box()
+                box_step4.label(text="4. Recommandations pour votre objectif :", icon='TOOL_SETTINGS')
+
+                # Catégorie 1 : Corrections conservatrices recommandées
+                b_c1 = box_step4.box()
+                r_c1_hdr = b_c1.row()
+                r_c1_hdr.label(text="1. Corrections conservatrices recommandées", icon='CHECKMARK')
+                c_list1 = rec_groups.get("conservative", [])
+                if c_list1:
+                    for card in c_list1:
+                        b_cd = b_c1.box()
+                        r_top = b_cd.row()
+                        r_top.label(text=card["title"], icon=card.get("operator_icon", 'BRUSH_DATA'))
+                        r_top.label(text=f"[{card['confidence']}]")
+
+                        c_inf = b_cd.column(align=True)
+                        c_inf.scale_y = 0.75
+                        c_inf.label(text=f"• Problème : {card['problem']}")
+                        c_inf.label(text=f"• Zone : {card['zone']}")
+                        c_inf.label(text=f"• Effet : {card['effect']}")
+                        c_inf.label(text=f"• Données : {card['data_impact']}")
+                        c_inf.label(text=f"• Réversibilité : {card['reversibility']}")
+
+                        col_btn = b_cd.column(align=True)
+                        col_btn.scale_y = 1.15
+                        r_btns = col_btn.row(align=True)
+                        if card.get("focus_id"):
+                            op_z = r_btns.operator("meshforge.focus_defect", text="Inspecter (Zoom)", icon='VIEWZOOM')
+                            op_z.finding_id = card["focus_id"]
+                        if card.get("operator"):
+                            r_btns.operator(card["operator"], text=card["operator_text"], icon=card.get("operator_icon", 'PLAY'))
+                else:
+                    b_c1.label(text="Aucune dégénérescence ni anomalie conservatrice à corriger.", icon='CHECKMARK')
+
+                # Catégorie 2 : Optimisations ciblées pour l'objectif
+                b_c2 = box_step4.box()
+                r_c2_hdr = b_c2.row()
+                r_c2_hdr.label(text="2. Optimisations ciblées pour l'objectif", icon='MOD_TRIANGULATE')
+                c_list2 = rec_groups.get("targeted", [])
+                if c_list2:
+                    for card in c_list2:
+                        b_cd = b_c2.box()
+                        r_top = b_cd.row()
+                        r_top.label(text=card["title"], icon=card.get("operator_icon", 'MOD_TRIANGULATE'))
+                        r_top.label(text=f"[{card['confidence']}]")
+
+                        c_inf = b_cd.column(align=True)
+                        c_inf.scale_y = 0.75
+                        c_inf.label(text=f"• Problème : {card['problem']}")
+                        c_inf.label(text=f"• Zone : {card['zone']}")
+                        c_inf.label(text=f"• Effet : {card['effect']}")
+                        c_inf.label(text=f"• Données : {card['data_impact']}")
+                        c_inf.label(text=f"• Réversibilité : {card['reversibility']}")
+
+                        col_btn = b_cd.column(align=True)
+                        col_btn.scale_y = 1.15
+                        r_btns = col_btn.row(align=True)
+                        if card.get("focus_id"):
+                            op_z = r_btns.operator("meshforge.focus_defect", text="Inspecter (Zoom)", icon='VIEWZOOM')
+                            op_z.finding_id = card["focus_id"]
+                        if card.get("operator"):
+                            r_btns.operator(card["operator"], text=card["operator_text"], icon=card.get("operator_icon", 'PLAY'))
+                else:
+                    b_c2.label(text="Topologie polygonale adaptée aux exigences de l'objectif.", icon='CHECKMARK')
+
+                # Catégorie 3 : Actions à risque à examiner individuellement
+                b_c3 = box_step4.box()
+                r_c3_hdr = b_c3.row()
+                r_c3_hdr.label(text="3. Actions à risque à examiner individuellement", icon='HELP')
+                c_list3 = rec_groups.get("risky", [])
+                if c_list3:
+                    for card in c_list3:
+                        b_cd = b_c3.box()
+                        b_cd.alert = True
+                        r_top = b_cd.row()
+                        r_top.label(text=card["title"], icon='ERROR')
+                        r_top.label(text=f"[{card['confidence']}]")
+
+                        c_inf = b_cd.column(align=True)
+                        c_inf.scale_y = 0.75
+                        c_inf.label(text=f"• Problème : {card['problem']}")
+                        c_inf.label(text=f"• Zone : {card['zone']}")
+                        c_inf.label(text=f"• Effet : {card['effect']}")
+                        c_inf.label(text=f"• Précision : {card['data_impact']}")
+                        c_inf.label(text=f"• Statut : {card['reversibility']}")
+
+                        col_btn = b_cd.column(align=True)
+                        col_btn.scale_y = 1.15
+                        if card.get("focus_id"):
+                            op_z = col_btn.operator("meshforge.focus_defect", text="Inspecter / Cadrer l'anomalie", icon='VIEWZOOM')
+                            op_z.finding_id = card["focus_id"]
+                else:
+                    b_c3.label(text="Aucune configuration géométrique risquée ou ambiguë détectée.", icon='CHECKMARK')
+
+                # Catégorie 4 : Observations sans action requise
+                b_c4 = box_step4.box()
+                r_c4_hdr = b_c4.row()
+                r_c4_hdr.label(text="4. Observations sans action requise", icon='INFO')
+                c_list4 = rec_groups.get("observations", [])
+                if c_list4:
+                    col_obs = b_c4.column(align=True)
+                    col_obs.scale_y = 0.85
+                    for card in c_list4:
+                        col_obs.label(text=f"• {card['title']} : {card['problem']} ({card['confidence']})")
+                else:
+                    b_c4.label(text="Aucune observation supplémentaire.", icon='INFO')
+
+                # Utilitaires directs de retouche topologique
+                box_topo = box_clean.box()
+                box_topo.label(text="Outils directs de topologie :", icon='SNAP_FACE')
+                col_topo_btns = box_topo.column(align=True)
+                col_topo_btns.operator("meshforge.cut_ngons", text="Découper les N-gones (Convexes / Concaves)", icon='MOD_TRIANGULATE')
+                col_topo_btns.operator("meshforge.quadrangulate", text="Quadranguler les triangles (Tris -> Quads)", icon='SNAP_FACE')
+
+                # 2.5 Étape 5 : Historique & Restauration de l'original
+                if "_MF_Optimized" in obj.name or obj.get("_mf_source_ptr"):
+                    box_res = box_clean.box()
+                    box_res.label(text="5. Historique & Restauration de l'original :", icon='RECOVER_LAST')
+
+                    root_source = obj.get("_mf_source_ptr", None)
+                    if root_source and root_source.name in bpy.data.objects and root_source.data:
+                        orig_sig = f"{len(root_source.data.vertices)}v_{len(root_source.data.edges)}e_{len(root_source.data.polygons)}f"
+                        saved_sig = obj.get("_mf_source_mesh_version", "")
+                        if saved_sig and orig_sig != saved_sig:
+                            b_stale = box_res.box()
+                            b_stale.alert = True
+                            b_stale.label(text="Attention : L'original a été modifié !", icon='ERROR')
+                            c_st = b_stale.column(align=True)
+                            c_st.scale_y = 0.8
+                            c_st.label(text=f"L'original '{root_source.name}' a évolué depuis cette copie.")
+                            c_st.label(text="Restaurez ou ré-optimisez depuis l'original pour actualiser.")
+
+                    box_res.operator("meshforge.restore", text="Restaurer l'original", icon='RECOVER_LAST')
 
         # ---------------------------------------------------------
         # 4. SECTION 2 : DECIMATE — RÉDUIRE LE MAILLAGE (REPLIÉE PAR DÉFAUT)

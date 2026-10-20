@@ -86,9 +86,11 @@ class MESHFORGE_OT_analyze_topology(bpy.types.Operator):
 
         props = context.scene.meshforge_settings
         mode = props.asset_target_mode
+        strict_m = getattr(props, "constraint_strict_manifold", False)
+        quads_o = getattr(props, "constraint_quads_only", False)
 
         mesh = obj.data
-        diag = diagnose_topology(obj, mode=mode)
+        diag = diagnose_topology(obj, mode=mode, strict_manifold=strict_m, quads_only=quads_o)
 
         # Enregistrement de la signature topologique pour détection de péremption (UX7.2)
         real_tris = sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)

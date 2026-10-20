@@ -66,7 +66,9 @@ THRESHOLD_SPECS = {
 def diagnose_topology(
     obj: bpy.types.Object,
     mode: str = 'HYBRID_CLEANUP',
-    micro_edge_threshold: float = 0.0001
+    micro_edge_threshold: float = 0.0001,
+    strict_manifold: bool = False,
+    quads_only: bool = False
 ) -> Dict[str, Any]:
     """Exécute un diagnostic topologique complet en lecture seule.
     Retourne les statistiques objectives et une liste de défauts catégorisés
@@ -423,10 +425,20 @@ def diagnose_topology(
     try:
         from .structured_diagnosis import measure_mesh_facts, evaluate_structured_diagnosis
         facts = measure_mesh_facts(obj)
-        structured = evaluate_structured_diagnosis(facts, mode)
+        structured = evaluate_structured_diagnosis(
+            facts,
+            mode,
+            strict_manifold=strict_manifold,
+            quads_only=quads_only
+        )
     except Exception:
         facts = {}
-        structured = {"findings": [], "recommended_actions": [], "summary_counts": {}}
+        structured = {
+            "findings": [],
+            "recommended_actions": [],
+            "recommendation_groups": {"conservative": [], "targeted": [], "risky": [], "observations": []},
+            "summary_counts": {}
+        }
 
     return {
         "valid": True,

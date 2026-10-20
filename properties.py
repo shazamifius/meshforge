@@ -24,7 +24,14 @@ def _on_profile_mode_changed(self, context):
             diag = _ACTIVE_DIAGNOSIS_CACHE[obj.name]
             facts = diag.get("facts")
             if facts:
-                new_struct = evaluate_structured_diagnosis(facts, self.asset_target_mode)
+                strict_m = getattr(self, "constraint_strict_manifold", False)
+                quads_o = getattr(self, "constraint_quads_only", False)
+                new_struct = evaluate_structured_diagnosis(
+                    facts,
+                    self.asset_target_mode,
+                    strict_manifold=strict_m,
+                    quads_only=quads_o
+                )
                 diag["structured"] = new_struct
                 diag["findings"] = new_struct.get("findings", [])
                 diag["recommended_actions"] = new_struct.get("recommended_actions", [])
@@ -68,16 +75,31 @@ class MeshForgeSettings(bpy.types.PropertyGroup):
         description="Définit l'usage prévu pour adapter le diagnostic et les recommandations sans recalcul lourd",
         items=[
             ('GENERAL', "1. Diagnostic général — « Je ne sais pas »", "Analyse factuelle neutre. Seuls les défauts avérés sont signalés.", 'HELP', 0),
-            ('GAME_ASSET', "2. Asset de jeu", "Pour moteurs temps réel (Unity, Unreal, Godot). Triangles, budget et UVs.", 'PLAY', 1),
-            ('DEFORMABLE_CHAR', "3. Personnage déformable", "Pour animation et rigging. Boucles de quads régulières et pôles maîtrisés.", 'OUTLINER_OB_ARMATURE', 2),
-            ('SCULPTED_ORGANIC', "4. Modèle sculpté ou organique", "Pour sculpts haute densité. Préservation absolue de courbure, zéro décimation destructive.", 'BRUSH_DATA', 3),
-            ('MECHANICAL_CAD', "5. Objet mécanique ou assemblage", "Pour pièces CAD et hard-surface. Arêtes vives, faces planes et pièces multiples.", 'TOOL_SETTINGS', 4),
+            ('GAME_ASSET', "2. Jeu vidéo & Temps réel", "Pour moteurs temps réel (Unity, Unreal, Godot). Triangles, budget et UVs.", 'PLAY', 1),
+            ('RENDER_ANIM', "3. Rendu & Animation", "Pour rendu et subdivision propre. Quads réguliers et lissage continu.", 'RESTRICT_RENDER_OFF', 2),
+            ('DEFORMABLE_CHAR', "4. Personnage déformable (Rigging)", "Pour animation de personnages et rigging. Boucles de quads alignées aux articulations.", 'OUTLINER_OB_ARMATURE', 3),
+            ('EXPORT_PREP', "5. Préparation export & Impression 3D", "Étanchéité manifold absolue, zéro paroi interne, normales orientées vers l'extérieur.", 'EXPORT', 4),
+            ('MECHANICAL_CAD', "6. Objet mécanique ou CAO", "Pour pièces industrielles et surfaces dures. Arêtes vives, faces planes et biseaux.", 'TOOL_SETTINGS', 5),
+            ('SCULPTED_ORGANIC', "7. Modèle sculpté ou organique", "Pour sculpts haute densité. Préservation absolue de courbure, zéro perte de détail.", 'BRUSH_DATA', 6),
+            ('CUSTOM', "8. Autre usage / Objectif personnalisé", "Usage sur-mesure combiné avec les contraintes complémentaires.", 'PROPERTIES', 7),
             # Rétro-compatibilité
-            ('HYBRID_CLEANUP', "Général (Alias)", "Alias pour GENERAL", 'NONE', 5),
-            ('GAME_TRIANGLES', "Asset jeu (Alias)", "Alias pour GAME_ASSET", 'NONE', 6),
-            ('DEFORMABLE_QUADS', "Déformable (Alias)", "Alias pour DEFORMABLE_CHAR", 'NONE', 7)
+            ('HYBRID_CLEANUP', "Général (Alias)", "Alias pour GENERAL", 'NONE', 8),
+            ('GAME_TRIANGLES', "Asset jeu (Alias)", "Alias pour GAME_ASSET", 'NONE', 9),
+            ('DEFORMABLE_QUADS', "Déformable (Alias)", "Alias pour DEFORMABLE_CHAR", 'NONE', 10),
         ],
         default='GENERAL',
+        update=_on_profile_mode_changed
+    )
+    constraint_strict_manifold: BoolProperty(
+        name="Exiger étanchéité manifold stricte",
+        description="Considère toute arête ou sommet non-manifold comme un défaut critique à corriger en priorité",
+        default=False,
+        update=_on_profile_mode_changed
+    )
+    constraint_quads_only: BoolProperty(
+        name="Exiger 100% quadrilatères (Quads)",
+        description="Considère les triangles et N-gones comme des défauts topologiques à éliminer",
+        default=False,
         update=_on_profile_mode_changed
     )
     validation_depth: EnumProperty(

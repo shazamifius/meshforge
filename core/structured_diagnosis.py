@@ -93,7 +93,7 @@ PROFILES = {
     },
     "GAME_ASSET": {
         "id": "GAME_ASSET",
-        "name": "Asset de jeu",
+        "name": "Jeu vidéo & Temps réel",
         "icon": 'PLAY',
         "summary": "Moteur temps réel (Unity, Unreal, Godot). Triangles, budget et UVs.",
         "description": (
@@ -101,14 +101,44 @@ PROFILES = {
             "budget de triangles maîtrisé, coordonnées UV rigoureusement préservées et zéro face nulle."
         )
     },
+    "RENDER_ANIM": {
+        "id": "RENDER_ANIM",
+        "name": "Rendu & Animation",
+        "icon": 'RESTRICT_RENDER_OFF',
+        "summary": "Rendu haute qualité et subdivision propre. Quads réguliers prioritaires.",
+        "description": (
+            "Priorité à la qualité de subdivision et au lissage d'ombrage. "
+            "Réduction des pôles complexes, élimination des plis et harmonisation des boucles de quads."
+        )
+    },
     "DEFORMABLE_CHAR": {
         "id": "DEFORMABLE_CHAR",
-        "name": "Personnage déformable",
+        "name": "Personnage déformable (Rigging)",
         "icon": 'OUTLINER_OB_ARMATURE',
         "summary": "Animation et rigging. Topologie en quadrilatères réguliers et boucles d'arêtes.",
         "description": (
             "Priorité à la déformation : géométrie pure quads, alignement des edge loops aux articulations, "
             "alerte sur les N-gones et triangles coupant les boucles, et surveillance des pôles à haute valence."
+        )
+    },
+    "EXPORT_PREP": {
+        "id": "EXPORT_PREP",
+        "name": "Préparation export & Impression 3D",
+        "icon": 'EXPORT',
+        "summary": "Étanchéité manifold absolue, zéro paroi interne occluse, normales unifiées.",
+        "description": (
+            "Priorité à la fermeture volumique étanche (watertight). Élimination impérative de tout élément "
+            "non-manifold, des trous involontaires, des parois internes et orientation uniforme vers l'extérieur."
+        )
+    },
+    "MECHANICAL_CAD": {
+        "id": "MECHANICAL_CAD",
+        "name": "Objet mécanique ou CAO",
+        "icon": 'TOOL_SETTINGS',
+        "summary": "Pièces industrielles et hard-surface. Arêtes vives, faces planes et pièces multiples.",
+        "description": (
+            "Priorité aux cotes et surfaces planes : les N-gones plans réguliers sont acceptés. "
+            "Élimination stricte des micro-arêtes booléennes, des parois internes et des doublons."
         )
     },
     "SCULPTED_ORGANIC": {
@@ -121,14 +151,13 @@ PROFILES = {
             "Aucune décimation agressive n'est recommandée par défaut pour éviter les balafres et ombres noires."
         )
     },
-    "MECHANICAL_CAD": {
-        "id": "MECHANICAL_CAD",
-        "name": "Objet mécanique ou assemblage",
-        "icon": 'TOOL_SETTINGS',
-        "summary": "Pièces industrielles et hard-surface. Arêtes vives, faces planes et pièces multiples.",
+    "CUSTOM": {
+        "id": "CUSTOM",
+        "name": "Autre usage / Objectif personnalisé",
+        "icon": 'PROPERTIES',
+        "summary": "Diagnostic sur-mesure ajusté via les contraintes complémentaires.",
         "description": (
-            "Priorité aux cotes et surfaces planes : les N-gones plans réguliers sont acceptés. "
-            "Élimination stricte des micro-arêtes booléennes, des parois internes et des doublons."
+            "Analyse ouverte permettant de moduler les exigences topologiques à l'aide des contraintes complémentaires."
         )
     }
 }
@@ -137,7 +166,10 @@ PROFILES = {
 PROFILE_ALIAS = {
     "HYBRID_CLEANUP": "GENERAL",
     "GAME_TRIANGLES": "GAME_ASSET",
-    "DEFORMABLE_QUADS": "DEFORMABLE_CHAR"
+    "DEFORMABLE_QUADS": "DEFORMABLE_CHAR",
+    "3D_PRINTING": "EXPORT_PREP",
+    "PRINT_3D": "EXPORT_PREP",
+    "ANIMATION": "RENDER_ANIM",
 }
 
 
@@ -432,11 +464,14 @@ def measure_mesh_facts(obj: bpy.types.Object) -> Dict[str, Any]:
 
 def evaluate_structured_diagnosis(
     facts: Dict[str, Any],
-    profile_id: str = "GENERAL"
+    profile_id: str = "GENERAL",
+    strict_manifold: bool = False,
+    quads_only: bool = False
 ) -> Dict[str, Any]:
-    """Évalue instantanément les faits géométriques selon les règles du profil choisi.
+    """Évalue instantanément les faits géométriques selon les règles de l'objectif choisi
+    et des contraintes complémentaires (strict_manifold, quads_only).
     Produit la liste hiérarchisée des constats (DEFECT, RISK, OBSERVATION)
-    et les recommandations ciblées sans recalcul géométrique lourd.
+    et les recommandations réparties en 4 catégories sans recalcul géométrique lourd.
     """
     # Résolution des alias de profil
     resolved_profile = PROFILE_ALIAS.get(profile_id, profile_id)
@@ -452,6 +487,12 @@ def evaluate_structured_diagnosis(
             "profile": p_info,
             "findings": [],
             "recommended_actions": [],
+            "recommendation_groups": {
+                "conservative": [],
+                "targeted": [],
+                "risky": [],
+                "observations": []
+            },
             "summary_counts": {"defects": 0, "risks": 0, "observations": 0}
         }
 
@@ -473,6 +514,12 @@ def evaluate_structured_diagnosis(
                 ).to_dict()
             ],
             "recommended_actions": [],
+            "recommendation_groups": {
+                "conservative": [],
+                "targeted": [],
+                "risky": [],
+                "observations": []
+            },
             "summary_counts": {"defects": 1, "risks": 0, "observations": 0}
         }
 
@@ -550,11 +597,12 @@ def evaluate_structured_diagnosis(
 
     # 2.1 Arêtes filaires sans face
     if facts["wire_edges_count"] > 0:
+        sev_wire = "DEFECT" if (strict_manifold or resolved_profile in ("GAME_ASSET", "MECHANICAL_CAD", "EXPORT_PREP")) else "RISK"
         findings.append(DiagnosticFinding(
             finding_id="topo_wire_edges",
             category="TOPOLOGY",
             name=f"Arêtes filaires sans face ({facts['wire_edges_count']})",
-            severity="DEFECT" if resolved_profile in ("GAME_ASSET", "MECHANICAL_CAD") else "RISK",
+            severity=sev_wire,
             count=facts["wire_edges_count"],
             element_type="EDGE",
             indices=facts["wire_edge_indices"],
@@ -569,11 +617,12 @@ def evaluate_structured_diagnosis(
 
     # 2.2 Parois internes mitoyennes et jonctions en T (D2.4)
     if facts.get("internal_walls_count", 0) > 0:
+        sev_iw = "DEFECT" if (strict_manifold or resolved_profile in ("GAME_ASSET", "MECHANICAL_CAD", "EXPORT_PREP")) else "RISK"
         findings.append(DiagnosticFinding(
             finding_id="topo_internal_walls",
             category="TOPOLOGY",
             name=f"Parois internes mitoyennes ({facts['internal_walls_count']} faces)",
-            severity="DEFECT" if resolved_profile in ("GAME_ASSET", "MECHANICAL_CAD") else "RISK",
+            severity=sev_iw,
             count=facts["internal_walls_count"],
             element_type="FACE",
             indices=facts["internal_wall_indices"],
@@ -591,7 +640,7 @@ def evaluate_structured_diagnosis(
             finding_id="topo_t_junctions",
             category="TOPOLOGY",
             name=f"Jonctions de surface / Ailerons ({facts['t_junctions_count']} faces)",
-            severity="RISK" if resolved_profile == "MECHANICAL_CAD" else "OBSERVATION",
+            severity="RISK" if (strict_manifold or resolved_profile in ("MECHANICAL_CAD", "EXPORT_PREP")) else "OBSERVATION",
             count=facts["t_junctions_count"],
             element_type="FACE",
             indices=facts["t_junction_indices"],
@@ -618,13 +667,12 @@ def evaluate_structured_diagnosis(
 
     # 2.3 Frontières ouvertes (Mesh ouvert / Tissu)
     if facts["is_open_mesh"]:
-        # Pour un asset mécanique c'est un risque, pour un tissu ou vêtement c'est une observation normale
-        sev = "RISK" if resolved_profile == "MECHANICAL_CAD" else "OBSERVATION"
+        sev_boundary = "DEFECT" if (strict_manifold or resolved_profile == "EXPORT_PREP") else ("RISK" if resolved_profile == "MECHANICAL_CAD" else "OBSERVATION")
         findings.append(DiagnosticFinding(
             finding_id="topo_open_boundary",
             category="TOPOLOGY",
             name=f"Frontière ouverte ({facts['boundary_edges_count']} arêtes de bord)",
-            severity=sev,
+            severity=sev_boundary,
             count=facts["boundary_edges_count"],
             element_type="EDGE",
             explanation="Le maillage possède un ou plusieurs bords ouverts (surface non fermée).",
@@ -632,7 +680,7 @@ def evaluate_structured_diagnosis(
             recommendation="Vérifier si le modèle est censé être un volume fermé solide."
         ))
 
-    # 2.4 N-gones (Convexes, Concaves, Ambigus) - INTERPRÉTATION STRICTEMENT SELON PROFIL
+    # 2.4 N-gones (Convexes, Concaves, Ambigus) - INTERPRÉTATION STRICTEMENT SELON PROFIL & CONTRAINTES
     if facts["total_ngons"] > 0:
         # A. Cas ambigus (Bow-tie / Torsion extrême) : DEFECT partout !
         if facts["ngons_ambiguous_count"] > 0:
@@ -653,12 +701,12 @@ def evaluate_structured_diagnosis(
 
         # B. Cas concaves (Angles rentrants > 180°)
         if facts["ngons_concave_count"] > 0:
-            sev = "DEFECT" if resolved_profile == "GAME_ASSET" else ("RISK" if resolved_profile == "DEFORMABLE_CHAR" else "WARNING")
+            sev_concave = "DEFECT" if (quads_only or resolved_profile in ("GAME_ASSET", "EXPORT_PREP")) else "RISK"
             findings.append(DiagnosticFinding(
                 finding_id="topo_ngons_concave",
                 category="TOPOLOGY",
                 name=f"N-gones concaves ({facts['ngons_concave_count']})",
-                severity="RISK" if resolved_profile != "GAME_ASSET" else "DEFECT",
+                severity=sev_concave,
                 count=facts["ngons_concave_count"],
                 element_type="FACE",
                 indices=facts["ngon_concave_indices"],
@@ -673,25 +721,30 @@ def evaluate_structured_diagnosis(
 
         # C. Cas convexes réguliers
         if facts["ngons_convex_count"] > 0:
-            if resolved_profile == "GAME_ASSET":
+            if quads_only or resolved_profile in ("GAME_ASSET", "EXPORT_PREP"):
                 sev = "DEFECT"
-                exp = "Les moteurs de jeu (Unity, Unreal) exigent une triangulation ou des quads. Les N-gones sont à proscrire."
-                rec = "Découper les N-gones en triangles équilibrés (Beauty)."
+                exp = "La topologie requise interdit les N-gones (triangulation ou quads obligatoires)."
+                rec = "Découper les N-gones en polygones élémentaires."
                 act = "meshforge.cut_ngons"
             elif resolved_profile == "DEFORMABLE_CHAR":
                 sev = "RISK"
                 exp = "Les N-gones interrompent les boucles de quads (edge loops) nécessaires aux déformations d'articulation."
                 rec = "Convertir en quads pour préserver la fluidité de déformation."
                 act = "meshforge.cut_ngons"
+            elif resolved_profile == "RENDER_ANIM":
+                sev = "RISK"
+                exp = "Les N-gones peuvent créer des étirements ou des plis sous subdivision de surface."
+                rec = "Découper les N-gones pour un lissage régulier."
+                act = "meshforge.cut_ngons"
             elif resolved_profile == "MECHANICAL_CAD":
                 sev = "OBSERVATION"
                 exp = "Face plane régulière à plus de 4 sommets. Courant et toléré sur les surfaces d'appui plates en CAD."
                 rec = "Conservation possible si la face reste parfaitement plane."
                 act = None
-            else:  # GENERAL & SCULPTED_ORGANIC
+            else:  # GENERAL, SCULPTED_ORGANIC, CUSTOM
                 sev = "OBSERVATION"
-                exp = f"Face convexe à plus de 4 sommets. Ne pose pas de problème immédiat hors animation ou export temps réel."
-                rec = "Découpe recommandée uniquement si vous prévoyez une subdivision ou un export jeu."
+                exp = f"Face convexe à plus de 4 sommets. Ne pose pas de problème immédiat hors contrainte stricte."
+                rec = "Découpe recommandée si vous prévoyez une subdivision ou un export temps réel."
                 act = "meshforge.cut_ngons"
 
             findings.append(DiagnosticFinding(
@@ -734,17 +787,18 @@ def evaluate_structured_diagnosis(
         ))
 
     # =========================================================================
-    # 4. PRÉPARATION À LA DÉFORMATION (Animation / Rigging)
+    # 4. PRÉPARATION À LA DÉFORMATION & GÉOMÉTRIE QUADS
     # =========================================================================
 
-    if resolved_profile == "DEFORMABLE_CHAR":
-        # 4.1 Triangles isolés au milieu de quads
+    if quads_only or resolved_profile in ("DEFORMABLE_CHAR", "RENDER_ANIM"):
+        # 4.1 Triangles au milieu de quads
         if facts["tris_count"] > 0:
+            sev_tri = "DEFECT" if quads_only else "RISK"
             findings.append(DiagnosticFinding(
                 finding_id="deform_tris_in_quads",
                 category="DEFORMATION",
                 name=f"Triangles dans un maillage quad ({facts['tris_count']})",
-                severity="RISK",
+                severity=sev_tri,
                 count=facts["tris_count"],
                 element_type="FACE",
                 explanation=f"Le maillage contient {facts['tris_count']} triangle(s) au milieu de {facts['quads_count']} quad(s).",
@@ -848,13 +902,16 @@ def evaluate_structured_diagnosis(
         ))
 
     # =========================================================================
-    # 7. SÉLECTION ET PRIORISATION DES ACTIONS RECOMMANDÉES (Phase UX5)
+    # 7. SÉLECTION ET PRIORISATION DES RECOMMANDATIONS (Les 4 Catégories UX)
     # =========================================================================
 
-    # Règle d'or de MeshForge : Maximum 2 actions prioritaires sur l'écran d'accueil,
-    # avec explication du risque et justification formelle.
+    rec_conservative = []
+    rec_targeted = []
+    rec_risky = []
+    rec_observations = []
+    recommended_actions = []
 
-    # Action 1 : Nettoyage conservateur sûr (si orphelins, faces nulles, arêtes filaires)
+    # 7.1 Catégorie 1 : Corrections conservatrices recommandées
     has_conservative_clean_needs = (
         facts["zero_area_faces_count"] > 0 or
         facts["loose_verts_count"] > 0 or
@@ -863,13 +920,30 @@ def evaluate_structured_diagnosis(
     )
     if has_conservative_clean_needs:
         reasons = []
-        if facts["zero_area_faces_count"] > 0:
-            reasons.append(f"{facts['zero_area_faces_count']} face(s) d'aire nulle")
         if facts["loose_verts_count"] > 0:
             reasons.append(f"{facts['loose_verts_count']} sommet(s) orphelin(s)")
+        if facts["zero_area_faces_count"] > 0:
+            reasons.append(f"{facts['zero_area_faces_count']} face(s) d'aire nulle")
         if facts["wire_edges_count"] > 0:
-            reasons.append(f"{facts['wire_edges_count']} arête(s) filaire(s)")
+            reasons.append(f"{facts['wire_edges_count']} arête(s) sans face")
+        if facts["micro_edges_count"] > 0 and resolved_profile == "MECHANICAL_CAD":
+            reasons.append(f"{facts['micro_edges_count']} arête(s) minuscules")
 
+        rec_c = {
+            "id": "rec_conservative_clean",
+            "title": "Nettoyage conservateur des dégénérescences",
+            "problem": f"Présence de résidus géométriques : {', '.join(reasons)}",
+            "zone": "Éléments orphelins isolés et faces d'aire nulle",
+            "effect": "Supprime les résidus et fusionne les doublons sans altérer les surfaces utiles",
+            "data_impact": "Préservation totale des UVs, coutures (seams), arêtes vives et vertex groups",
+            "reversibility": "Réversible (Ctrl+Z) / Rollback automatique en cas d'erreur",
+            "confidence": "100% Sûr (Risque Faible)",
+            "operator": "meshforge.conservative_clean",
+            "operator_text": "Nettoyer les dégénérescences",
+            "operator_icon": "BRUSH_DATA",
+            "focus_id": "geom_zero_area_faces" if facts["zero_area_faces_count"] > 0 else "geom_loose_verts"
+        }
+        rec_conservative.append(rec_c)
         recommended_actions.append({
             "id": "conservative_clean",
             "operator": "meshforge.conservative_clean",
@@ -882,18 +956,64 @@ def evaluate_structured_diagnosis(
             "safety_note": "Transaction réversible : rollback automatique en cas d'erreur."
         })
 
-    # Action 2 : Découpe des N-gones (uniquement si justifiée pour le profil)
-    should_cut_ngons = (
-        (facts["ngons_concave_count"] > 0) or
-        (facts["ngons_convex_count"] > 0 and resolved_profile in ("GAME_ASSET", "DEFORMABLE_CHAR"))
-    )
-    if should_cut_ngons:
-        reasons = []
-        if facts["ngons_concave_count"] > 0:
-            reasons.append(f"{facts['ngons_concave_count']} N-gone(s) concave(s)")
-        if facts["ngons_convex_count"] > 0 and resolved_profile in ("GAME_ASSET", "DEFORMABLE_CHAR"):
-            reasons.append(f"{facts['ngons_convex_count']} N-gone(s) pour profil {p_info['name']}")
+    if facts.get("internal_walls_count", 0) > 0:
+        rec_iw = {
+            "id": "rec_internal_walls",
+            "title": "Suppression des parois internes mitoyennes",
+            "problem": f"{facts['internal_walls_count']} face(s) mitoyenne(s) occluse(s) séparant des cellules fermées",
+            "zone": "Cloisons internes mitoyennes non visibles de l'extérieur",
+            "effect": "Supprime les parois intérieures pour restaurer un volume manifold étanche sans trou",
+            "data_impact": "Coque extérieure intacte. UVs, coutures et matériaux strictement préservés",
+            "reversibility": "Réversible (Ctrl+Z) / Rollback si ouverture de bord involontaire",
+            "confidence": "Élevé (Cellules fermées et occlusions démontrées)",
+            "operator": "meshforge.remove_internal_walls",
+            "operator_text": f"Supprimer les parois internes ({facts['internal_walls_count']})",
+            "operator_icon": "X",
+            "focus_id": "topo_internal_walls"
+        }
+        rec_conservative.append(rec_iw)
+        recommended_actions.append({
+            "id": "remove_internal_walls",
+            "operator": "meshforge.remove_internal_walls",
+            "label": f"Supprimer les parois internes ({facts['internal_walls_count']} faces)",
+            "icon": 'X',
+            "risk_badge": "[Risque Contrôlé]",
+            "risk_level": "CONTROLLED",
+            "justification": f"Élimine {facts['internal_walls_count']} face(s) mitoyenne(s) occluses pour restaurer un volume fermé manifold.",
+            "data_impact": "Supprime les faces intérieures sans ouvrir de trou dans la coque externe.",
+            "safety_note": "Confirmation explicite requise. Rollback automatique si déviation."
+        })
 
+    # 7.2 Catégorie 2 : Optimisations ciblées pour l'objectif
+    need_cut_ngons = (
+        (facts["total_ngons"] > 0) and (
+            quads_only or
+            facts["ngons_concave_count"] > 0 or
+            resolved_profile in ("GAME_ASSET", "DEFORMABLE_CHAR", "EXPORT_PREP", "RENDER_ANIM")
+        )
+    )
+    if need_cut_ngons:
+        reasons_ngon = []
+        if facts["ngons_concave_count"] > 0:
+            reasons_ngon.append(f"{facts['ngons_concave_count']} concave(s)")
+        if facts["ngons_convex_count"] > 0:
+            reasons_ngon.append(f"{facts['ngons_convex_count']} convexe(s)")
+
+        rec_ngon = {
+            "id": "rec_cut_ngons",
+            "title": "Découpe sécurisée des N-gones",
+            "problem": f"{facts['total_ngons']} N-gone(s) détecté(s) ({', '.join(reasons_ngon)})",
+            "zone": "Faces à plus de 4 sommets",
+            "effect": "Découpe en polygones gérables via Ear-clipping sécurisé et Beauty triangulation",
+            "data_impact": "Coordonnées UV interpolées sans étirement, coutures et matériaux préservés",
+            "reversibility": "Réversible (Ctrl+Z)",
+            "confidence": "Très élevé (Cas ambigus exclus pour découpe manuelle)",
+            "operator": "meshforge.cut_ngons",
+            "operator_text": f"Découper les {facts['total_ngons']} N-gones",
+            "operator_icon": "MOD_TRIANGULATE",
+            "focus_id": "topo_ngons_concave" if facts["ngons_concave_count"] > 0 else "topo_ngons_convex"
+        }
+        rec_targeted.append(rec_ngon)
         recommended_actions.append({
             "id": "cut_ngons",
             "operator": "meshforge.cut_ngons",
@@ -901,18 +1021,33 @@ def evaluate_structured_diagnosis(
             "icon": 'MOD_TRIANGULATE',
             "risk_badge": "[Risque Contrôlé]",
             "risk_level": "CONTROLLED",
-            "justification": f"Résout : {', '.join(reasons)}.",
+            "justification": f"Résout : {facts['total_ngons']} N-gones pour l'objectif {p_info['name']}.",
             "data_impact": "Triangulation Beauty / Ear-Clipping. Préserve les UVs et matériaux.",
             "safety_note": f"Les cas ambigus ({facts['ngons_ambiguous_count']}) sont refusés et isolés pour découpe manuelle."
         })
 
-    # Action 3 : Quadrangulation ciblée (si paires de triangles coplanaires et profil adapté)
-    should_quadrangulate = (
-        facts["tris_count"] >= 2 and
-        resolved_profile in ("DEFORMABLE_CHAR", "HARD_SURFACE", "GENERAL") and
-        len(recommended_actions) < 3
+    need_quadrangulate = (
+        (facts["tris_count"] >= 2) and (
+            quads_only or
+            resolved_profile in ("DEFORMABLE_CHAR", "RENDER_ANIM", "HARD_SURFACE", "GENERAL")
+        )
     )
-    if should_quadrangulate:
+    if need_quadrangulate:
+        rec_quad = {
+            "id": "rec_quadrangulate",
+            "title": "Quadrangulation ciblée (Tris -> Quads)",
+            "problem": f"{facts['tris_count']} triangle(s) au milieu de {facts['quads_count']} quad(s)",
+            "zone": "Paires de triangles adjacents coplanaires",
+            "effect": "Reconstitue des quads réguliers pour fluidifier la déformation et le lissage",
+            "data_impact": "Aire préservée, respect strict des coutures UV, arêtes vives et matériaux",
+            "reversibility": "Réversible (Ctrl+Z) / Rollback si altération géométrique",
+            "confidence": "Élevé (Tolérance angulaire stricte de planéité)",
+            "operator": "meshforge.quadrangulate",
+            "operator_text": f"Quadranguler les triangles ({facts['tris_count']} tris)",
+            "operator_icon": "SNAP_FACE",
+            "focus_id": "deform_tris_in_quads"
+        }
+        rec_targeted.append(rec_quad)
         recommended_actions.append({
             "id": "quadrangulate",
             "operator": "meshforge.quadrangulate",
@@ -925,18 +1060,107 @@ def evaluate_structured_diagnosis(
             "safety_note": "Transaction réversible : rollback automatique en cas de déviation géométrique."
         })
 
-    # Action 4 : Suppression des parois internes mitoyennes (D2.4)
-    if facts.get("internal_walls_count", 0) > 0 and len(recommended_actions) < 3:
-        recommended_actions.append({
-            "id": "remove_internal_walls",
-            "operator": "meshforge.remove_internal_walls",
-            "label": f"Supprimer les parois internes ({facts['internal_walls_count']} faces)",
-            "icon": 'X',
-            "risk_badge": "[Risque Contrôlé]",
-            "risk_level": "CONTROLLED",
-            "justification": f"Élimine {facts['internal_walls_count']} face(s) mitoyenne(s) occluses pour restaurer un volume fermé manifold.",
-            "data_impact": "Supprime les faces intérieures sans ouvrir de trou dans la coque externe.",
-            "safety_note": "Confirmation explicite requise. Rollback automatique si déviation."
+    # 7.3 Catégorie 3 : Actions à risque à examiner individuellement
+    if facts.get("ngons_ambiguous_count", 0) > 0:
+        rec_risky.append({
+            "id": "rec_risky_ngons_ambiguous",
+            "title": "N-gones ambigus / auto-intersectants",
+            "problem": f"{facts['ngons_ambiguous_count']} face(s) en nœud papillon ou à forte torsion de planéité",
+            "zone": "Polygones auto-intersectants ou en selle",
+            "effect": "La découpe automatique risquerait d'inverser des normales. Découpe manuelle conseillée (K au couteau)",
+            "data_impact": "Aucune altération automatique appliquée",
+            "reversibility": "Sans objet (opération refusée par précaution)",
+            "confidence": "Refus préventif de sécurité",
+            "operator": None,
+            "focus_id": "topo_ngons_ambiguous"
+        })
+
+    if facts.get("t_junctions_count", 0) > 0:
+        rec_risky.append({
+            "id": "rec_risky_t_junctions",
+            "title": "Jonctions de surface / Ailerons rattachés",
+            "problem": f"{facts['t_junctions_count']} face(s) formant une jonction en T (arêtes à 3 faces)",
+            "zone": "Cloisons ouvertes ou ailerons rattachés à la coque",
+            "effect": "Surface potentiellement intentionnelle (décor, vêtement, aileron). Ne jamais supprimer sans inspection",
+            "data_impact": "Surfaces utiles visibles",
+            "reversibility": "Non altéré sans action utilisateur",
+            "confidence": "Nécessite arbitrage visuel humain",
+            "operator": None,
+            "focus_id": "topo_t_junctions"
+        })
+
+    if facts.get("non_manifold_edges_count", 0) > 0 and facts.get("internal_walls_count", 0) == 0:
+        rec_risky.append({
+            "id": "rec_risky_non_manifold",
+            "title": "Arêtes non-manifold complexes",
+            "problem": f"{facts['non_manifold_edges_count']} arête(s) connectée(s) à 3 faces ou plus sans cellule fermée",
+            "zone": "Lignes de jonction non conformes",
+            "effect": "Rend le maillage non-étanche (non-watertight). Inspection recommandée avant export ou impression",
+            "data_impact": "Connectivité de surface",
+            "reversibility": "Non altéré automatiquement",
+            "confidence": "À vérifier manuellement",
+            "operator": None,
+            "focus_id": "topo_non_manifold"
+        })
+
+    # 7.4 Catégorie 4 : Observations sans action requise
+    quad_ratio = (facts['quads_count'] / max(1, facts['polygon_count'])) * 100.0
+    rec_observations.append({
+        "id": "obs_quads",
+        "title": "Structure polygonale",
+        "problem": f"{facts['quads_count']:,} quads ({quad_ratio:.1f}%), {facts['tris_count']:,} triangles, {facts['total_ngons']:,} N-gones",
+        "zone": "Ensemble du maillage",
+        "effect": "Topologie actuelle inventoriée. Aucune altération requise",
+        "data_impact": "Aucun impact",
+        "reversibility": "Sans objet",
+        "confidence": "Informatif"
+    })
+
+    if facts["uv_layer_count"] > 0:
+        rec_observations.append({
+            "id": "obs_uvs",
+            "title": "Coordonnées de texture UV",
+            "problem": f"{facts['uv_layer_count']} couche(s) UV active(s) ({', '.join(facts['uv_layer_names'])})",
+            "zone": "Attributs UV de l'objet",
+            "effect": "Préservation active garantie sur tous les opérateurs MeshForge",
+            "data_impact": "Protégé",
+            "reversibility": "Sans objet",
+            "confidence": "Conforme"
+        })
+    else:
+        rec_observations.append({
+            "id": "obs_uvs_none",
+            "title": "Couches de texture UV",
+            "problem": "Aucune couche UV détectée",
+            "zone": "Attributs d'objet",
+            "effect": "Un dépliage sera nécessaire avant texturage ou baking",
+            "data_impact": "Information",
+            "reversibility": "Sans objet",
+            "confidence": "Informatif"
+        })
+
+    if resolved_profile == "MECHANICAL_CAD" and facts["ngons_convex_count"] > 0 and not quads_only:
+        rec_observations.append({
+            "id": "obs_cad_ngons",
+            "title": "N-gones plans en CAO",
+            "problem": f"{facts['ngons_convex_count']} N-gone(s) convexe(s) plan(s)",
+            "zone": "Surfaces d'appui planes",
+            "effect": "Faces planes standard en modélisation industrielle / hard-surface : conservation recommandée",
+            "data_impact": "Non modifié",
+            "reversibility": "Sans objet",
+            "confidence": "Conforme CAO"
+        })
+
+    if resolved_profile == "SCULPTED_ORGANIC":
+        rec_observations.append({
+            "id": "obs_sculpt_density",
+            "title": "Densité de sculpture préservée",
+            "problem": f"{facts['real_triangles']:,} triangles réels",
+            "zone": "Courbures organiques fines",
+            "effect": "La haute densité restitue les micro-détails sculptés. Aucune décimation automatique par défaut",
+            "data_impact": "Non altéré",
+            "reversibility": "Sans objet",
+            "confidence": "Conforme sculpture"
         })
 
     # Compteurs par sévérité
@@ -969,5 +1193,11 @@ def evaluate_structured_diagnosis(
             "total_findings": len(findings)
         },
         "findings": [f.to_dict() for f in findings],
-        "recommended_actions": recommended_actions
+        "recommended_actions": recommended_actions,
+        "recommendation_groups": {
+            "conservative": rec_conservative,
+            "targeted": rec_targeted,
+            "risky": rec_risky,
+            "observations": rec_observations
+        }
     }
