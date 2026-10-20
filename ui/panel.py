@@ -124,6 +124,25 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
             r2.label(text=f"● Dégénérescences : {summary.get('degeneracies', 0)}", icon='ERROR') # Rouge
             r2.label(text=f"● Éléments isolés : {summary.get('isolated', 0)}", icon='DOT') # Violet
 
+            # Proposition d'action ciblée conservatrice (Phase D2.1)
+            can_clean = (summary.get('degeneracies', 0) > 0 or summary.get('isolated', 0) > 0)
+            if can_clean:
+                box_act = box_diag.box()
+                r_act_title = box_act.row()
+                r_act_title.label(text="Action recommandée :", icon='TOOL_SETTINGS')
+                r_act_title.label(text="[Risque Faible]", icon='CHECKMARK')
+
+                col_clean = box_act.column(align=True)
+                col_clean.scale_y = 1.2
+                col_clean.operator("meshforge.conservative_clean", text="Nettoyage conservateur (Sûr)", icon='BRUSH_DATA')
+
+                box_info = box_act.box()
+                col_info = box_info.column(align=True)
+                col_info.scale_y = 0.8
+                col_info.label(text="• Supprime orphelins, arêtes sans face et faces nulles.")
+                col_info.label(text="• Fusionne les doublons en protégeant les coutures UV.")
+                col_info.label(text="• Transaction sécurisée : rollback automatique garanti en cas d'erreur.")
+
             if defects:
                 box_diag.separator()
                 box_diag.prop(props, "active_defect_filter", text="Filtre")
