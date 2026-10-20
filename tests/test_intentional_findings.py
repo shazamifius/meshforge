@@ -104,16 +104,23 @@ class TestIntentionalFindingsAndManualSteps(unittest.TestCase):
         self.assertEqual(res, {'FINISHED'})
         self.assertIn("topo_open_boundary", list(obj.get("_mf_intentional_findings", [])))
 
-        # 3. Ré-analyse
+        # 3. Ré-analyse sous EXPORT_PREP (doit devenir RISK car non-étanche pour l'export, et OBSERVATION sous GENERAL)
         diag_after = diagnose_topology(obj, mode="EXPORT_PREP")
         findings_after = {f["id"]: f for f in diag_after["findings"]}
         
         f_open = findings_after["topo_open_boundary"]
         self.assertTrue(f_open.get("is_intentional"))
-        self.assertEqual(f_open["severity"], "OBSERVATION")
-        self.assertIn("[Intentionnel]", f_open["name"])
+        self.assertEqual(f_open["severity"], "RISK")
+        self.assertIn("[Intentionnel non conforme export]", f_open["name"])
+
+        # Sous GENERAL, l'ouverture est acceptée et devient une simple OBSERVATION
+        diag_gen = diagnose_topology(obj, mode="GENERAL")
+        findings_gen = {f["id"]: f for f in diag_gen["findings"]}
+        f_open_gen = findings_gen["topo_open_boundary"]
+        self.assertEqual(f_open_gen["severity"], "OBSERVATION")
+        self.assertIn("[Intentionnel]", f_open_gen["name"])
         
-        # Le nombre de défauts a diminué car l'ouverture est maintenant intentionnelle
+        # Le nombre de défauts a diminué car l'ouverture n'est plus un DEFECT
         self.assertEqual(diag_after["structured"]["summary_counts"]["defects"], 0)
         self.assertNotEqual(diag_after["structured"]["health"]["status"], "CRITICAL")
 

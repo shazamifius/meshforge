@@ -203,7 +203,11 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
                         f_is_intentional = f.get("is_intentional", False)
                         if f_is_intentional:
-                            r_f_top.label(text="[INTENTIONNEL]", icon='CHECKMARK')
+                            if f_sev == 'RISK':
+                                r_f_top.alert = True
+                                r_f_top.label(text="[INTENTIONNEL NON CONFORME]", icon='ERROR')
+                            else:
+                                r_f_top.label(text="[INTENTIONNEL]", icon='CHECKMARK')
                         elif f_sev == 'DEFECT':
                             r_f_top.alert = True
                             r_f_top.label(text="[DÉFAUT]", icon='CANCEL')

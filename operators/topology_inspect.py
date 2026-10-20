@@ -34,6 +34,10 @@ def check_diagnosis_staleness(obj: bpy.types.Object) -> Tuple[bool, Optional[str
     if diag.get("is_stale", False):
         return True, "Marqué obsolète suite à une modification géométrique."
 
+    if getattr(obj, "mode", "OBJECT") == 'EDIT' or getattr(getattr(obj, "data", None), "is_editmode", False):
+        diag["is_stale"] = True
+        return True, "Objet en cours de modification en Mode Édition."
+
     mesh = getattr(obj, "data", None)
     if not mesh or not hasattr(mesh, "vertices"):
         return False, None
@@ -45,6 +49,14 @@ def check_diagnosis_staleness(obj: bpy.types.Object) -> Tuple[bool, Optional[str
         if curr_sig != cached_sig:
             diag["is_stale"] = True
             return True, f"Topologie modifiée (Sommets: {cached_sig[0]} -> {curr_sig[0]}, Faces: {cached_sig[2]} -> {curr_sig[2]})."
+
+    # Comparaison de la boîte englobante géométrique (pour détection de déplacement de sommets sans changement V/E/F)
+    cached_bbox = diag.get("bbox_signature")
+    if cached_bbox and hasattr(obj, "bound_box"):
+        curr_bbox = tuple(round(c, 4) for bound in obj.bound_box for c in bound)
+        if curr_bbox != cached_bbox:
+            diag["is_stale"] = True
+            return True, "Position des sommets modifiée (géométrie transformée)."
 
     # Comparaison du maillage interne
     cached_mesh_name = diag.get("mesh_name")
@@ -92,9 +104,10 @@ class MESHFORGE_OT_analyze_topology(bpy.types.Operator):
         mesh = obj.data
         diag = diagnose_topology(obj, mode=mode, strict_manifold=strict_m, quads_only=quads_o)
 
-        # Enregistrement de la signature topologique pour détection de péremption (UX7.2)
+        # Enregistrement de la signature topologique pour détection de péremption (UX7.2 & P0)
         real_tris = sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
         diag["topo_signature"] = (len(mesh.vertices), len(mesh.edges), len(mesh.polygons))
+        diag["bbox_signature"] = tuple(round(c, 4) for bound in obj.bound_box for c in bound) if hasattr(obj, "bound_box") else None
         diag["mesh_name"] = mesh.name
         diag["is_stale"] = False
         diag["triangle_count"] = real_tris
@@ -168,18 +181,36 @@ class MESHFORGE_OT_focus_defect(bpy.types.Operator):
         target_defect = None
         target_name = "Anomalie"
 
-        # 1. Recherche prioritaire par finding_id
+        # 1. Recherche prioritaire par finding_id (exacte ou granulaire)
         if self.finding_id:
             findings = diag.get("findings", [])
+            # Priorité 1 : correspondance exacte
             for f in findings:
                 f_id = getattr(f, "id", None) or (f.get("id") if isinstance(f, dict) else None)
                 if f_id == self.finding_id:
-                    if hasattr(f, "to_dict"):
-                        target_defect = f.to_dict()
-                    else:
-                        target_defect = dict(f)
+                    target_defect = f.to_dict() if hasattr(f, "to_dict") else dict(f)
                     target_name = target_defect.get("name", self.finding_id)
                     break
+
+            # Priorité 2 : correspondance par préfixe si base_id passé (ex: "topo_ngons_concave" -> premier item)
+            if target_defect is None and ":" not in self.finding_id:
+                prefix = f"{self.finding_id}:"
+                for f in findings:
+                    f_id = getattr(f, "id", None) or (f.get("id") if isinstance(f, dict) else None)
+                    if f_id and f_id.startswith(prefix):
+                        target_defect = f.to_dict() if hasattr(f, "to_dict") else dict(f)
+                        target_name = target_defect.get("name", self.finding_id)
+                        break
+
+            # Priorité 3 : correspondance sans préfixe si granulaire passé mais trouvé sous base_id
+            if target_defect is None and ":" in self.finding_id:
+                base_id = self.finding_id.split(":", 1)[0]
+                for f in findings:
+                    f_id = getattr(f, "id", None) or (f.get("id") if isinstance(f, dict) else None)
+                    if f_id == base_id:
+                        target_defect = f.to_dict() if hasattr(f, "to_dict") else dict(f)
+                        target_name = target_defect.get("name", self.finding_id)
+                        break
 
         # 2. Repli sur defect_index dans la liste des défauts visuels
         defects = diag.get("defects", [])
@@ -231,6 +262,7 @@ class MESHFORGE_OT_mark_intentional(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     finding_id: bpy.props.StringProperty(name="Identifiant du constat", default="")
+    element_index: bpy.props.IntProperty(name="Index de l'élément", default=-1)
     unmark: bpy.props.BoolProperty(name="Annuler le marquage", default=False)
 
     @classmethod
@@ -243,26 +275,120 @@ class MESHFORGE_OT_mark_intentional(bpy.types.Operator):
             self.report({'WARNING'}, "MeshForge : Aucun identifiant de constat spécifié.")
             return {'CANCELLED'}
 
-        # Lecture de la liste existante
+        # Résolution de l'identifiant granulaire (P0)
+        from ..core.structured_diagnosis import _get_category_items
+        cached = _ACTIVE_DIAGNOSIS_CACHE.get(obj.name)
+        facts = cached.get("facts") if (cached and "facts" in cached) else None
+        if facts is None:
+            from ..core.structured_diagnosis import measure_mesh_facts
+            facts = measure_mesh_facts(obj)
+
+        if ":" in self.finding_id:
+            target_id = self.finding_id
+            base_id, item_id_str = self.finding_id.split(":", 1)
+        else:
+            base_id = self.finding_id
+            if self.element_index >= 0:
+                target_id = f"{self.finding_id}:{self.element_index}"
+                item_id_str = str(self.element_index)
+            else:
+                items = _get_category_items(facts, base_id) if facts else []
+                if len(items) > 1 and not self.unmark:
+                    self.report({'WARNING'}, f"MeshForge : Plusieurs occurrences ({len(items)}) existent pour '{base_id}'. Veuillez marquer l'anomalie spécifique.")
+                    return {'CANCELLED'}
+                elif len(items) == 1:
+                    it_id = str(items[0].get("item_id", items[0].get("index", "0")))
+                    target_id = base_id
+                    item_id_str = it_id
+                else:
+                    target_id = base_id
+                    item_id_str = None
+
+        import json
         stored = list(obj.get("_mf_intentional_findings", [])) if hasattr(obj, "get") else []
+        raw_reg = obj.get("_mf_intentional_registry", "{}") if hasattr(obj, "get") else "{}"
+        if isinstance(raw_reg, str):
+            try:
+                registry = json.loads(raw_reg)
+            except Exception:
+                registry = {}
+        elif isinstance(raw_reg, dict):
+            registry = dict(raw_reg)
+        else:
+            registry = {}
 
         if self.unmark:
-            if self.finding_id in stored:
-                stored.remove(self.finding_id)
-                obj["_mf_intentional_findings"] = stored
-                self.report({'INFO'}, f"MeshForge : Marquage intentionnel retiré pour '{self.finding_id}'.")
+            removed = False
+            if target_id in stored:
+                stored.remove(target_id)
+                registry.pop(target_id, None)
+                removed = True
+
+            # Si dé-marquage d'une catégorie globale, retirer tous les items associés
+            if ":" not in target_id:
+                prefix = f"{target_id}:"
+                for k in list(stored):
+                    if k.startswith(prefix):
+                        stored.remove(k)
+                        registry.pop(k, None)
+                        removed = True
+
+            obj["_mf_intentional_findings"] = stored
+            clean_reg = {}
+            for reg_k, reg_v in registry.items():
+                clean_reg[reg_k] = {
+                    "base_id": str(reg_v.get("base_id", "")),
+                    "item_id": str(reg_v.get("item_id", "")) if reg_v.get("item_id") is not None else None,
+                    "center": [float(c) for c in reg_v.get("center", (0.0, 0.0, 0.0))],
+                    "element_type": str(reg_v.get("element_type", "FACE")),
+                    "indices": [int(i) for i in reg_v.get("indices", [])]
+                }
+            obj["_mf_intentional_registry"] = json.dumps(clean_reg)
+
+            if removed:
+                self.report({'INFO'}, f"MeshForge : Marquage intentionnel retiré pour '{target_id}'.")
             else:
                 self.report({'INFO'}, "MeshForge : Le constat n'était pas marqué.")
         else:
-            if self.finding_id not in stored:
-                stored.append(self.finding_id)
+            if target_id not in stored:
+                stored.append(target_id)
                 obj["_mf_intentional_findings"] = stored
-                self.report({'INFO'}, f"MeshForge : Constat '{self.finding_id}' validé comme géométrie intentionnelle.")
+
+                # Enregistrement des métadonnées dans le registre pour vérification spatiale
+                item_meta = None
+                if facts:
+                    items = _get_category_items(facts, base_id)
+                    if item_id_str is not None:
+                        match = [it for it in items if str(it.get("item_id", it.get("index"))) == item_id_str]
+                        if match:
+                            item_meta = match[0]
+                    elif len(items) == 1:
+                        item_meta = items[0]
+
+                if item_meta:
+                    registry[target_id] = {
+                        "base_id": base_id,
+                        "item_id": item_id_str,
+                        "center": [float(c) for c in item_meta.get("center", (0.0, 0.0, 0.0))],
+                        "element_type": str(item_meta.get("element_type", "FACE")),
+                        "indices": [int(i) for i in item_meta.get("indices", [])]
+                    }
+                    clean_reg = {}
+                    for reg_k, reg_v in registry.items():
+                        clean_reg[reg_k] = {
+                            "base_id": str(reg_v.get("base_id", "")),
+                            "item_id": str(reg_v.get("item_id", "")) if reg_v.get("item_id") is not None else None,
+                            "center": [float(c) for c in reg_v.get("center", (0.0, 0.0, 0.0))],
+                            "element_type": str(reg_v.get("element_type", "FACE")),
+                            "indices": [int(i) for i in reg_v.get("indices", [])]
+                        }
+                    obj["_mf_intentional_registry"] = json.dumps(clean_reg)
+
+                self.report({'INFO'}, f"MeshForge : Constat '{target_id}' validé comme géométrie intentionnelle.")
             else:
                 self.report({'INFO'}, "MeshForge : Constat déjà marqué comme intentionnel.")
 
         # Réévaluation immédiate du diagnostic en mémoire sans recalcul géométrique lourd
-        cached = _ACTIVE_DIAGNOSIS_CACHE.get(obj.name)
         if cached and "facts" in cached:
             props = context.scene.meshforge_settings
             mode = props.asset_target_mode

@@ -364,6 +364,46 @@ def measure_mesh_facts(obj: bpy.types.Object, custom_micro_edge: Optional[float]
         if e.calc_length() <= micro_edge_threshold and not e.is_boundary:
             micro_edges.append(e)
 
+    # 2.c Partition des arêtes de frontière en boucles connexes (Boundary Loops)
+    boundary_loops = []
+    if boundary_edges:
+        vert_to_b_edges: Dict[bmesh.types.BMVert, List[bmesh.types.BMEdge]] = {}
+        for be in boundary_edges:
+            for bv in be.verts:
+                vert_to_b_edges.setdefault(bv, []).append(be)
+
+        remaining_edges = set(boundary_edges)
+        loop_id = 0
+        while remaining_edges:
+            seed = remaining_edges.pop()
+            comp = [seed]
+            queue = [seed]
+            while queue:
+                curr = queue.pop()
+                for bv in curr.verts:
+                    for neighbor_e in vert_to_b_edges.get(bv, []):
+                        if neighbor_e in remaining_edges:
+                            remaining_edges.remove(neighbor_e)
+                            comp.append(neighbor_e)
+                            queue.append(neighbor_e)
+
+            c_verts = set()
+            for ce in comp:
+                c_verts.update(ce.verts)
+            c_center = tuple(np.mean([v.co for v in c_verts], axis=0)) if c_verts else (0.0, 0.0, 0.0)
+            boundary_loops.append({
+                "item_id": str(loop_id),
+                "loop_id": loop_id,
+                "edge_count": len(comp),
+                "edge_indices": [ce.index for ce in comp],
+                "indices": [ce.index for ce in comp],
+                "vert_count": len(c_verts),
+                "vert_indices": [cv.index for cv in c_verts],
+                "center": c_center,
+                "element_type": "EDGE"
+            })
+            loop_id += 1
+
     # 2.b Analyse des parois internes et jonctions en T si non-manifold présent
     strict_internal_faces = []
     t_junction_faces = []
@@ -435,8 +475,256 @@ def measure_mesh_facts(obj: bpy.types.Object, custom_micro_edge: Optional[float]
     vertex_group_names = [vg.name for vg in obj.vertex_groups]
     has_custom_normals = bool(mesh.has_custom_normals)
 
-    # 6. Intentional findings marqués sur l'objet
+    # 5.b Construction des listes d'items granulaires pour chaque anomalie
+    tri_items = [{
+        "item_id": str(f.index),
+        "index": f.index,
+        "element_type": "FACE",
+        "indices": [f.index],
+        "center": tuple(f.calc_center_bounds())
+    } for f in tris]
+
+    ngon_concave_items = [{
+        "item_id": str(f.index),
+        "index": f.index,
+        "element_type": "FACE",
+        "indices": [f.index],
+        "center": tuple(f.calc_center_bounds()),
+        "verts_count": len(f.verts)
+    } for f in ngons_concave]
+
+    ngon_convex_items = [{
+        "item_id": str(f.index),
+        "index": f.index,
+        "element_type": "FACE",
+        "indices": [f.index],
+        "center": tuple(f.calc_center_bounds()),
+        "verts_count": len(f.verts)
+    } for f in ngons_convex]
+
+    ngon_ambiguous_items = [{
+        "item_id": str(f.index),
+        "index": f.index,
+        "element_type": "FACE",
+        "indices": [f.index],
+        "center": tuple(f.calc_center_bounds()),
+        "verts_count": len(f.verts)
+    } for f in ngons_ambiguous]
+
+    zero_area_items = [{
+        "item_id": str(f.index),
+        "index": f.index,
+        "element_type": "FACE",
+        "indices": [f.index],
+        "center": tuple(f.calc_center_bounds())
+    } for f in zero_area_faces]
+
+    micro_edge_items = [{
+        "item_id": str(e.index),
+        "index": e.index,
+        "element_type": "EDGE",
+        "indices": [e.index],
+        "face_indices": [f.index for f in e.link_faces],
+        "center": tuple((e.verts[0].co + e.verts[1].co) * 0.5),
+        "length": e.calc_length()
+    } for e in micro_edges]
+
+    wire_edge_items = [{
+        "item_id": str(e.index),
+        "index": e.index,
+        "element_type": "EDGE",
+        "indices": [e.index],
+        "center": tuple((e.verts[0].co + e.verts[1].co) * 0.5)
+    } for e in wire_edges]
+
+    loose_vert_items = [{
+        "item_id": str(v.index),
+        "index": v.index,
+        "element_type": "VERT",
+        "indices": [v.index],
+        "center": tuple(v.co)
+    } for v in loose_verts]
+
+    pole_items = [{
+        "item_id": str(v.index),
+        "index": v.index,
+        "element_type": "VERT",
+        "indices": [v.index],
+        "center": tuple(v.co),
+        "valence": len(v.link_edges)
+    } for v in poles_6_plus]
+
+    needle_triangle_items = [{
+        "item_id": str(f.index),
+        "index": f.index,
+        "element_type": "FACE",
+        "indices": [f.index],
+        "center": tuple(f.calc_center_bounds()),
+        "aspect": asp
+    } for f, asp in needle_triangles]
+
+    internal_wall_items = []
+    if strict_internal_faces:
+        remaining_iw = set(strict_internal_faces)
+        iw_id = 0
+        while remaining_iw:
+            seed = remaining_iw.pop()
+            comp = [seed]
+            queue = [seed]
+            while queue:
+                curr_idx = queue.pop()
+                if curr_idx < len(bm.faces):
+                    curr_f = bm.faces[curr_idx]
+                    for e in curr_f.edges:
+                        for lf in e.link_faces:
+                            if lf.index in remaining_iw:
+                                remaining_iw.remove(lf.index)
+                                comp.append(lf.index)
+                                queue.append(lf.index)
+            c_center = tuple(np.mean([bm.faces[fi].calc_center_bounds() for fi in comp if fi < len(bm.faces)], axis=0)) if comp else strict_wall_center
+            internal_wall_items.append({
+                "item_id": str(iw_id),
+                "index": iw_id,
+                "element_type": "FACE",
+                "indices": comp,
+                "face_count": len(comp),
+                "center": tuple(float(c) for c in c_center)
+            })
+            iw_id += 1
+
+    t_junction_items = []
+    if t_junction_faces:
+        remaining_tj = set(t_junction_faces)
+        tj_id = 0
+        while remaining_tj:
+            seed = remaining_tj.pop()
+            comp = [seed]
+            queue = [seed]
+            while queue:
+                curr_idx = queue.pop()
+                if curr_idx < len(bm.faces):
+                    curr_f = bm.faces[curr_idx]
+                    for e in curr_f.edges:
+                        for lf in e.link_faces:
+                            if lf.index in remaining_tj:
+                                remaining_tj.remove(lf.index)
+                                comp.append(lf.index)
+                                queue.append(lf.index)
+            c_center = tuple(np.mean([bm.faces[fi].calc_center_bounds() for fi in comp if fi < len(bm.faces)], axis=0)) if comp else (0.0, 0.0, 0.0)
+            t_junction_items.append({
+                "item_id": str(tj_id),
+                "index": tj_id,
+                "element_type": "FACE",
+                "indices": comp,
+                "face_count": len(comp),
+                "center": tuple(float(c) for c in c_center)
+            })
+            tj_id += 1
+
+    non_manifold_items = [{
+        "item_id": str(e.index),
+        "index": e.index,
+        "element_type": "EDGE",
+        "indices": [e.index],
+        "face_indices": [f.index for f in e.link_faces],
+        "center": tuple(float(c) for c in (e.verts[0].co + e.verts[1].co) * 0.5),
+        "link_faces": len(e.link_faces)
+    } for e in non_manifold_edges]
+
+    category_items_map = {
+        "topo_ngons_concave": ngon_concave_items,
+        "topo_ngons_convex": ngon_convex_items,
+        "topo_ngons_ambiguous": ngon_ambiguous_items,
+        "geom_zero_area_faces": zero_area_items,
+        "geom_micro_edges": micro_edge_items,
+        "topo_wire_edges": wire_edge_items,
+        "geom_loose_verts": loose_vert_items,
+        "deform_high_valence_poles": pole_items,
+        "surface_needle_triangles": needle_triangle_items,
+        "topo_internal_walls": internal_wall_items,
+        "topo_t_junctions": t_junction_items,
+        "topo_non_manifold": non_manifold_items,
+        "topo_open_boundary": boundary_loops,
+        "deform_tris_in_quads": tri_items
+    }
+
+    # 6. Intentional findings marqués sur l'objet et purge des validations périmées (P0)
+    import json
     intentional_ids = list(obj.get("_mf_intentional_findings", [])) if hasattr(obj, "get") else []
+    raw_reg = obj.get("_mf_intentional_registry", "{}") if hasattr(obj, "get") else "{}"
+    if isinstance(raw_reg, str):
+        try:
+            registry = json.loads(raw_reg)
+        except Exception:
+            registry = {}
+    elif isinstance(raw_reg, dict):
+        registry = dict(raw_reg)
+    else:
+        registry = {}
+
+    pruned_validations = []
+    valid_intentional_ids = []
+    updated_registry = dict(registry)
+
+    for k in intentional_ids:
+        if ":" in k:
+            base_id, item_id = k.split(":", 1)
+        else:
+            base_id, item_id = k, None
+
+        items = category_items_map.get(base_id)
+        is_still_valid = False
+
+        if items is not None:
+            if item_id is not None:
+                # Chercher l'item spécifique par item_id
+                matching = [it for it in items if str(it.get("item_id")) == str(item_id)]
+                if matching:
+                    it = matching[0]
+                    reg_entry = registry.get(k)
+                    if reg_entry:
+                        reg_center = reg_entry.get("center")
+                        curr_center = it.get("center")
+                        if reg_center and curr_center:
+                            dist = math.sqrt(sum((float(a) - float(b))**2 for a, b in zip(reg_center, curr_center)))
+                            if dist < 0.1:
+                                is_still_valid = True
+                            else:
+                                is_still_valid = False  # Recréation ou déplacement
+                        else:
+                            is_still_valid = True
+                    else:
+                        is_still_valid = True
+            else:
+                # Clé globale sans suffixe (ex: topo_open_boundary) : valide s'il n'y a qu'1 seul item
+                if len(items) == 1:
+                    is_still_valid = True
+
+        if is_still_valid:
+            valid_intentional_ids.append(k)
+        else:
+            pruned_validations.append({
+                "key": k,
+                "reason": "Élément supprimé, modifié ou anomalie résolue"
+            })
+            updated_registry.pop(k, None)
+
+    # Mise à jour des propriétés personnalisées de l'objet si modification
+    if hasattr(obj, "__setitem__"):
+        if len(valid_intentional_ids) != len(intentional_ids) or len(updated_registry) != len(registry):
+            obj["_mf_intentional_findings"] = valid_intentional_ids
+            clean_reg = {}
+            for reg_k, reg_v in updated_registry.items():
+                clean_reg[reg_k] = {
+                    "base_id": str(reg_v.get("base_id", "")),
+                    "item_id": str(reg_v.get("item_id", "")) if reg_v.get("item_id") is not None else None,
+                    "center": [float(c) for c in reg_v.get("center", (0.0, 0.0, 0.0))],
+                    "element_type": str(reg_v.get("element_type", "FACE")),
+                    "indices": [int(i) for i in reg_v.get("indices", [])]
+                }
+            obj["_mf_intentional_registry"] = json.dumps(clean_reg)
+
+    intentional_ids = valid_intentional_ids
 
     # Construction des centres utiles (protégés)
     c_zero = tuple(zero_area_faces[0].calc_center_bounds()) if zero_area_faces else (0.0, 0.0, 0.0)
@@ -644,13 +932,294 @@ def measure_mesh_facts(obj: bpy.types.Object, custom_micro_edge: Optional[float]
         "has_custom_normals": has_custom_normals,
         "has_seams": has_seams,
         "has_sharp": has_sharp,
-        # Intentional
+        # Intentional & Validations
         "intentional_finding_ids": intentional_ids,
+        "pruned_validations": pruned_validations,
+        # Items granulaires
+        "boundary_loops": boundary_loops,
+        "ngon_concave_items": ngon_concave_items,
+        "ngon_convex_items": ngon_convex_items,
+        "ngon_ambiguous_items": ngon_ambiguous_items,
+        "zero_area_items": zero_area_items,
+        "micro_edge_items": micro_edge_items,
+        "wire_edge_items": wire_edge_items,
+        "loose_vert_items": loose_vert_items,
+        "pole_items": pole_items,
+        "needle_triangle_items": needle_triangle_items,
+        "internal_wall_items": internal_wall_items,
+        "t_junction_items": t_junction_items,
+        "non_manifold_items": non_manifold_items,
+        "tri_items": tri_items,
         "legacy_defects": legacy_defects
     }
 
     bm.free()
     return facts
+
+
+def _is_intentional(base_id: str, item_id: str, total_count: int, intentional_ids: List[str]) -> bool:
+    """Détermine si une anomalie spécifique est marquée comme intentionnelle.
+    Si total_count == 1, accepte base_id ou f"{base_id}:{item_id}".
+    Si total_count > 1, n'accepte QUE la clé granulaire ciblée f"{base_id}:{item_id}".
+    """
+    if f"{base_id}:{item_id}" in intentional_ids:
+        return True
+    if total_count == 1 and base_id in intentional_ids:
+        return True
+    return False
+
+
+def _check_goal_compliance(
+    base_id: str,
+    default_name: str,
+    default_severity: str,
+    profile_id: str,
+    strict_manifold: bool,
+    quads_only: bool,
+    base_explanation: str
+) -> Tuple[str, str, str]:
+    """Évalue la conformité d'une géométrie intentionnelle par rapport aux exigences du profil cible.
+    Distingue la géométrie intentionnelle de la conformité à l'objectif :
+    - Frontière ouverte ou non-manifold : reste un RISK sous EXPORT_PREP ou strict_manifold (non étanche).
+    - N-gone : reste un RISK sous GAME_ASSET ou EXPORT_PREP ou quads_only (incompatible).
+    - Triangle : reste un RISK sous quads_only.
+    - Sinon : OBSERVATION neutre.
+    Retourne (severity, name, explanation).
+    """
+    # 1. Étanchéité volumique (Impression 3D, export strict)
+    if base_id in ("topo_open_boundary", "topo_non_manifold", "topo_internal_walls"):
+        if strict_manifold or profile_id == "EXPORT_PREP":
+            return (
+                "RISK",
+                f"[Intentionnel non conforme export] {default_name}",
+                f"[Validé comme intentionnel par l'utilisateur mais NON ÉTANCHE pour l'export / impression 3D] {base_explanation} L'impression 3D exige une surface hermétiquement fermée (watertight)."
+            )
+
+    # 2. Topologie stricte quads / temps réel (N-gones)
+    if base_id in ("topo_ngons_concave", "topo_ngons_convex", "topo_ngons_ambiguous"):
+        if quads_only or profile_id in ("GAME_ASSET", "EXPORT_PREP"):
+            return (
+                "RISK",
+                f"[Intentionnel non conforme temps réel/quads] {default_name}",
+                f"[Validé comme intentionnel par l'utilisateur mais NON CONFORME à l'objectif {profile_id}] {base_explanation} Les N-gones sont incompatibles avec les contraintes strictes de ce profil."
+            )
+        if base_id == "topo_ngons_ambiguous":
+            return (
+                "RISK",
+                f"[Intentionnel risqué] {default_name}",
+                f"[Validé comme intentionnel par l'utilisateur mais GÉOMÉTRIQUEMENT RISQUÉ] {base_explanation} Risque de faces inversées ou d'artefacts d'ombrage."
+            )
+
+    # 3. Triangles en topologie quads
+    if base_id == "deform_tris_in_quads":
+        if quads_only:
+            return (
+                "RISK",
+                f"[Intentionnel non conforme quads] {default_name}",
+                f"[Validé intentionnel par l'utilisateur mais NON CONFORME 100% quads] {base_explanation}"
+            )
+
+    # 4. Conforme / Accepté dans ce profil
+    return (
+        "OBSERVATION",
+        f"[Intentionnel] {default_name}",
+        f"[Validé comme géométrie intentionnelle par l'utilisateur] {base_explanation}"
+    )
+
+
+def _get_category_items(facts: Dict[str, Any], base_id: str) -> List[Dict[str, Any]]:
+    """Retourne la liste des items géométriques individuels pour un type d'anomalie."""
+    mapping = {
+        "topo_ngons_concave": facts.get("ngon_concave_items", []),
+        "topo_ngons_convex": facts.get("ngon_convex_items", []),
+        "topo_ngons_ambiguous": facts.get("ngon_ambiguous_items", []),
+        "geom_zero_area_faces": facts.get("zero_area_items", []),
+        "geom_micro_edges": facts.get("micro_edge_items", []),
+        "topo_wire_edges": facts.get("wire_edge_items", []),
+        "geom_loose_verts": facts.get("loose_vert_items", []),
+        "deform_high_valence_poles": facts.get("pole_items", []),
+        "surface_needle_triangles": facts.get("needle_triangle_items", []),
+        "topo_internal_walls": facts.get("internal_wall_items", []),
+        "topo_t_junctions": facts.get("t_junction_items", []),
+        "topo_non_manifold": facts.get("non_manifold_items", []),
+        "topo_open_boundary": facts.get("boundary_loops", []),
+        "deform_tris_in_quads": facts.get("tri_items", [])
+    }
+    return mapping.get(base_id, [])
+
+
+def _add_anomaly_findings(
+    findings_list: List[DiagnosticFinding],
+    base_id: str,
+    category: str,
+    default_name_singular: str,
+    default_name_plural: str,
+    default_severity: str,
+    items: List[Dict[str, Any]],
+    total_count: int,
+    intentional_ids: List[str],
+    profile_id: str,
+    strict_manifold: bool,
+    quads_only: bool,
+    explanation: str,
+    consequence: str,
+    recommendation: str,
+    compatible_action: Optional[str] = None,
+    action_name: str = "",
+    action_risk: str = "Risque Faible",
+    manual_correction_steps: Optional[List[str]] = None,
+    metric_value: Optional[float] = None,
+    metric_unit: str = "",
+    refusal_reason: Optional[str] = None
+) -> None:
+    """Ajoute des constats individuels ou synthétiques selon le nombre d'occurrences.
+    Garantit une granularité rigoureuse (P0) :
+    - Si 1 seule occurrence : ID = base_id (compatibilité 100%).
+    - Si > 1 occurrences : ID = f"{base_id}:{item_id}" pour chaque élément.
+    - Évalue la conformité à l'objectif sans greenwashing (ex: trou = RISK sous EXPORT_PREP).
+    """
+    if total_count <= 0:
+        return
+
+    # Si aucun item individuel n'est disponible (repli de sécurité)
+    if not items:
+        is_int = (base_id in intentional_ids)
+        if is_int:
+            sev, name, exp = _check_goal_compliance(
+                base_id, f"{default_name_plural} ({total_count})", default_severity,
+                profile_id, strict_manifold, quads_only, explanation
+            )
+            rec = "Géométrie conservée conformément au choix utilisateur." if sev == "OBSERVATION" else recommendation
+        else:
+            sev, name, exp, rec = default_severity, f"{default_name_plural} ({total_count})", explanation, recommendation
+
+        findings_list.append(DiagnosticFinding(
+            finding_id=base_id,
+            category=category,
+            name=name,
+            severity=sev,
+            count=total_count,
+            metric_value=metric_value,
+            metric_unit=metric_unit,
+            explanation=exp,
+            consequence=consequence,
+            recommendation=rec,
+            compatible_action=compatible_action if not is_int else None,
+            action_name=action_name if not is_int else "",
+            action_risk=action_risk if not is_int else "",
+            manual_correction_steps=manual_correction_steps or [],
+            refusal_reason=refusal_reason,
+            is_intentional=is_int
+        ))
+        return
+
+    # Cas A : Une seule occurrence (len(items) == 1) -> base_id direct
+    if len(items) == 1:
+        it = items[0]
+        it_id = str(it.get("item_id", it.get("index", "0")))
+        is_int = _is_intentional(base_id, it_id, 1, intentional_ids)
+
+        if is_int:
+            sev, name, exp = _check_goal_compliance(
+                base_id, f"{default_name_plural} (1)", default_severity,
+                profile_id, strict_manifold, quads_only, explanation
+            )
+            rec = "Géométrie conservée conformément au choix utilisateur." if sev == "OBSERVATION" else recommendation
+        else:
+            sev, name, exp, rec = default_severity, f"{default_name_plural} (1)", explanation, recommendation
+
+        findings_list.append(DiagnosticFinding(
+            finding_id=base_id,
+            category=category,
+            name=name,
+            severity=sev,
+            count=1,
+            metric_value=it.get("length") or it.get("aspect") or metric_value,
+            metric_unit=metric_unit,
+            element_type=it.get("element_type", "OBJECT"),
+            indices=it.get("indices", []),
+            face_indices=it.get("face_indices", []),
+            center=it.get("center"),
+            explanation=exp,
+            consequence=consequence,
+            recommendation=rec,
+            compatible_action=compatible_action if not is_int else None,
+            action_name=action_name if not is_int else "",
+            action_risk=action_risk if not is_int else "",
+            manual_correction_steps=manual_correction_steps or [],
+            refusal_reason=refusal_reason,
+            is_intentional=is_int
+        ))
+        return
+
+    # Cas B : Plusieurs occurrences distinctes (len(items) > 1) -> Granularité P0
+    MAX_GRANULAR = 20
+    for idx, it in enumerate(items):
+        it_id = str(it.get("item_id", it.get("index", idx)))
+        is_int = _is_intentional(base_id, it_id, len(items), intentional_ids)
+
+        # Si au-delà du seuil et non marqué intentionnel, on reporte vers le résumé
+        if idx >= MAX_GRANULAR and not is_int:
+            continue
+
+        elem_idx_label = it.get("index", it.get("loop_id", idx))
+        elem_name = f"{default_name_singular} (#{elem_idx_label})"
+
+        if is_int:
+            sev, name, exp = _check_goal_compliance(
+                base_id, elem_name, default_severity,
+                profile_id, strict_manifold, quads_only, explanation
+            )
+            rec = "Géométrie conservée conformément au choix utilisateur." if sev == "OBSERVATION" else recommendation
+        else:
+            sev, name, exp, rec = default_severity, elem_name, explanation, recommendation
+
+        findings_list.append(DiagnosticFinding(
+            finding_id=f"{base_id}:{it_id}",
+            category=category,
+            name=name,
+            severity=sev,
+            count=1,
+            metric_value=it.get("length") or it.get("aspect") or metric_value,
+            metric_unit=metric_unit,
+            element_type=it.get("element_type", "OBJECT"),
+            indices=it.get("indices", []),
+            face_indices=it.get("face_indices", []),
+            center=it.get("center"),
+            explanation=exp,
+            consequence=consequence,
+            recommendation=rec,
+            compatible_action=compatible_action if not is_int else None,
+            action_name=action_name if not is_int else "",
+            action_risk=action_risk if not is_int else "",
+            manual_correction_steps=manual_correction_steps or [],
+            refusal_reason=refusal_reason,
+            is_intentional=is_int
+        ))
+
+    # Résumé pour les éléments excédentaires non listés individuellement
+    unlisted_items = [
+        it for i, it in enumerate(items)
+        if i >= MAX_GRANULAR and not _is_intentional(base_id, str(it.get("item_id", it.get("index", i))), len(items), intentional_ids)
+    ]
+    if unlisted_items:
+        findings_list.append(DiagnosticFinding(
+            finding_id=f"{base_id}:other",
+            category=category,
+            name=f"{default_name_plural} (et {len(unlisted_items)} autre(s) non listé(s))",
+            severity=default_severity,
+            count=len(unlisted_items),
+            element_type=items[0].get("element_type", "OBJECT"),
+            indices=[it.get("index") for it in unlisted_items if "index" in it],
+            center=unlisted_items[0].get("center"),
+            explanation=f"{len(unlisted_items)} autre(s) occurrence(s) au-delà des {MAX_GRANULAR} premières.",
+            consequence=consequence,
+            recommendation=recommendation,
+            compatible_action=compatible_action,
+            action_name=action_name,
+            action_risk=action_risk,
+            manual_correction_steps=manual_correction_steps or []
+        ))
 
 
 def evaluate_structured_diagnosis(
@@ -727,146 +1296,169 @@ def evaluate_structured_diagnosis(
     # =========================================================================
 
     # 1.1 Faces d'aire nulle
-    if facts["zero_area_faces_count"] > 0:
-        findings.append(DiagnosticFinding(
-            finding_id="geom_zero_area_faces",
-            category="GEOMETRY",
-            name=f"Faces d'aire nulle ({facts['zero_area_faces_count']})",
-            severity="DEFECT",
-            count=facts["zero_area_faces_count"],
-            element_type="FACE",
-            indices=facts["zero_area_face_indices"],
-            center=facts["zero_area_face_center"],
-            explanation="Faces plates ou repliées sans surface mesurable (aire <= 1e-7 m²).",
-            consequence="Provoquent des divisions par zéro lors du calcul des normales, des NaN et des erreurs de rendu.",
-            recommendation="Dissoudre ces faces dégénérées via le nettoyage conservateur.",
-            compatible_action="meshforge.conservative_clean",
-            action_name="Nettoyage conservateur sûr",
-            action_risk="Risque Faible"
-        ))
+    _add_anomaly_findings(
+        findings_list=findings,
+        base_id="geom_zero_area_faces",
+        category="GEOMETRY",
+        default_name_singular="Face d'aire nulle",
+        default_name_plural="Faces d'aire nulle",
+        default_severity="DEFECT",
+        items=facts.get("zero_area_items", []),
+        total_count=facts["zero_area_faces_count"],
+        intentional_ids=intentional_finding_ids,
+        profile_id=resolved_profile,
+        strict_manifold=strict_manifold,
+        quads_only=quads_only,
+        explanation="Faces plates ou repliées sans surface mesurable (aire <= 1e-7 m²).",
+        consequence="Provoquent des divisions par zéro lors du calcul des normales, des NaN et des erreurs de rendu.",
+        recommendation="Dissoudre ces faces dégénérées via le nettoyage conservateur.",
+        compatible_action="meshforge.conservative_clean",
+        action_name="Nettoyage conservateur sûr",
+        action_risk="Risque Faible"
+    )
 
     # 1.2 Sommets orphelins (Loose verts)
-    if facts["loose_verts_count"] > 0:
-        findings.append(DiagnosticFinding(
-            finding_id="geom_loose_verts",
-            category="GEOMETRY",
-            name=f"Sommets orphelins ({facts['loose_verts_count']})",
-            severity="DEFECT",
-            count=facts["loose_verts_count"],
-            element_type="VERT",
-            indices=facts["loose_vert_indices"],
-            center=facts["loose_vert_center"],
-            explanation="Sommets flottant dans l'espace sans arête ni face connectée.",
-            consequence="Alourdissent inutilement les buffers GPU et faussent la boîte englobante.",
-            recommendation="Supprimer les sommets orphelins.",
-            compatible_action="meshforge.conservative_clean",
-            action_name="Nettoyage conservateur sûr",
-            action_risk="Risque Nul"
-        ))
+    _add_anomaly_findings(
+        findings_list=findings,
+        base_id="geom_loose_verts",
+        category="GEOMETRY",
+        default_name_singular="Sommet orphelin",
+        default_name_plural="Sommets orphelins",
+        default_severity="DEFECT",
+        items=facts.get("loose_vert_items", []),
+        total_count=facts["loose_verts_count"],
+        intentional_ids=intentional_finding_ids,
+        profile_id=resolved_profile,
+        strict_manifold=strict_manifold,
+        quads_only=quads_only,
+        explanation="Sommets flottant dans l'espace sans arête ni face connectée.",
+        consequence="Alourdissent inutilement les buffers GPU et faussent la boîte englobante.",
+        recommendation="Supprimer les sommets orphelins.",
+        compatible_action="meshforge.conservative_clean",
+        action_name="Nettoyage conservateur sûr",
+        action_risk="Risque Nul"
+    )
 
     # 1.3 Arêtes minuscules
-    if facts["micro_edges_count"] > 0:
-        # Sévérité selon le profil : DEFECT en mécanique/CAD, RISK sur les autres
-        sev = "DEFECT" if resolved_profile == "MECHANICAL_CAD" else "RISK"
-        findings.append(DiagnosticFinding(
-            finding_id="geom_micro_edges",
-            category="GEOMETRY",
-            name=f"Arêtes minuscules ({facts['micro_edges_count']})",
-            severity=sev,
-            count=facts["micro_edges_count"],
-            metric_value=facts["micro_edge_threshold"] * 1000.0,
-            metric_unit="mm (seuil)",
-            element_type="EDGE",
-            indices=facts["micro_edge_indices"],
-            center=facts["micro_edge_center"],
-            explanation=f"Arêtes exceptionnellement courtes par rapport à l'échelle de l'objet (seuil {facts['micro_edge_threshold']*1000:.2f} mm).",
-            consequence="Souvent issues de booléens imprécis ou de doubles extrusions. Risquent de créer des aiguilles.",
-            recommendation="Fusionner les sommets doublons si ce n'est pas un micro-chanfrein intentionnel.",
-            compatible_action="meshforge.conservative_clean",
-            action_name="Nettoyage conservateur sûr",
-            action_risk="Risque Modéré",
-            manual_correction_steps=[
-                "Mode Édition (Tab) > Sélection sommets (1).",
-                "Sélectionner les deux sommets de l'arête minuscule.",
-                "Appuyer sur M > 'Au centre' pour fusionner manuellement sans affecter le reste."
-            ]
-        ))
+    sev_micro = "DEFECT" if resolved_profile == "MECHANICAL_CAD" else "RISK"
+    _add_anomaly_findings(
+        findings_list=findings,
+        base_id="geom_micro_edges",
+        category="GEOMETRY",
+        default_name_singular="Arête minuscule",
+        default_name_plural="Arêtes minuscules",
+        default_severity=sev_micro,
+        items=facts.get("micro_edge_items", []),
+        total_count=facts["micro_edges_count"],
+        intentional_ids=intentional_finding_ids,
+        profile_id=resolved_profile,
+        strict_manifold=strict_manifold,
+        quads_only=quads_only,
+        explanation=f"Arêtes exceptionnellement courtes par rapport à l'échelle de l'objet (seuil {facts['micro_edge_threshold']*1000:.2f} mm).",
+        consequence="Souvent issues de booléens imprécis ou de doubles extrusions. Risquent de créer des aiguilles.",
+        recommendation="Fusionner les sommets doublons si ce n'est pas un micro-chanfrein intentionnel.",
+        compatible_action="meshforge.conservative_clean",
+        action_name="Nettoyage conservateur sûr",
+        action_risk="Risque Modéré",
+        manual_correction_steps=[
+            "Mode Édition (Tab) > Sélection sommets (1).",
+            "Sélectionner les deux sommets de l'arête minuscule.",
+            "Appuyer sur M > 'Au centre' pour fusionner manuellement sans affecter le reste."
+        ],
+        metric_value=facts["micro_edge_threshold"] * 1000.0,
+        metric_unit="mm (seuil)"
+    )
 
     # =========================================================================
     # 2. TOPOLOGIE & CONNECTIVITÉ
     # =========================================================================
 
     # 2.1 Arêtes filaires sans face
-    if facts["wire_edges_count"] > 0:
-        sev_wire = "DEFECT" if (strict_manifold or resolved_profile in ("GAME_ASSET", "MECHANICAL_CAD", "EXPORT_PREP")) else "RISK"
-        findings.append(DiagnosticFinding(
-            finding_id="topo_wire_edges",
-            category="TOPOLOGY",
-            name=f"Arêtes filaires sans face ({facts['wire_edges_count']})",
-            severity=sev_wire,
-            count=facts["wire_edges_count"],
-            element_type="EDGE",
-            indices=facts["wire_edge_indices"],
-            center=facts["wire_edge_center"],
-            explanation="Segments d'arêtes isolés ne délimitant aucune face polygonale.",
-            consequence="Invisibles en rendu de surface mais génèrent des erreurs d'export et d'occlusion.",
-            recommendation="Supprimer les arêtes filaires.",
-            compatible_action="meshforge.conservative_clean",
-            action_name="Nettoyage conservateur sûr",
-            action_risk="Risque Faible"
-        ))
+    sev_wire = "DEFECT" if (strict_manifold or resolved_profile in ("GAME_ASSET", "MECHANICAL_CAD", "EXPORT_PREP")) else "RISK"
+    _add_anomaly_findings(
+        findings_list=findings,
+        base_id="topo_wire_edges",
+        category="TOPOLOGY",
+        default_name_singular="Arête filaire sans face",
+        default_name_plural="Arêtes filaires sans face",
+        default_severity=sev_wire,
+        items=facts.get("wire_edge_items", []),
+        total_count=facts["wire_edges_count"],
+        intentional_ids=intentional_finding_ids,
+        profile_id=resolved_profile,
+        strict_manifold=strict_manifold,
+        quads_only=quads_only,
+        explanation="Segments d'arêtes isolés ne délimitant aucune face polygonale.",
+        consequence="Invisibles en rendu de surface mais génèrent des erreurs d'export et d'occlusion.",
+        recommendation="Supprimer les arêtes filaires.",
+        compatible_action="meshforge.conservative_clean",
+        action_name="Nettoyage conservateur sûr",
+        action_risk="Risque Faible"
+    )
 
     # 2.2 Parois internes mitoyennes et jonctions en T (D2.4)
-    if facts.get("internal_walls_count", 0) > 0:
-        sev_iw = "DEFECT" if (strict_manifold or resolved_profile in ("GAME_ASSET", "MECHANICAL_CAD", "EXPORT_PREP")) else "RISK"
-        findings.append(DiagnosticFinding(
-            finding_id="topo_internal_walls",
-            category="TOPOLOGY",
-            name=f"Parois internes mitoyennes ({facts['internal_walls_count']} faces)",
-            severity=sev_iw,
-            count=facts["internal_walls_count"],
-            element_type="FACE",
-            indices=facts["internal_wall_indices"],
-            center=facts.get("internal_wall_center"),
-            explanation=f"{facts['internal_walls_count']} face(s) mitoyenne(s) occluses séparant des cellules fermées. Leur suppression guérit la non-manifoldité sans ouvrir de trou.",
-            consequence="Rend l'objet non-étanche, interdit l'impression 3D, gaspille du budget polygonal et perturbe le baking.",
-            recommendation="Supprimer les parois internes après confirmation.",
-            compatible_action="meshforge.remove_internal_walls",
-            action_name="Supprimer les parois internes",
-            action_risk="Risque Contrôlé"
-        ))
+    sev_iw = "DEFECT" if (strict_manifold or resolved_profile in ("GAME_ASSET", "MECHANICAL_CAD", "EXPORT_PREP")) else "RISK"
+    _add_anomaly_findings(
+        findings_list=findings,
+        base_id="topo_internal_walls",
+        category="TOPOLOGY",
+        default_name_singular="Paroi interne mitoyenne",
+        default_name_plural="Parois internes mitoyennes",
+        default_severity=sev_iw,
+        items=facts.get("internal_wall_items", []),
+        total_count=facts.get("internal_walls_count", 0),
+        intentional_ids=intentional_finding_ids,
+        profile_id=resolved_profile,
+        strict_manifold=strict_manifold,
+        quads_only=quads_only,
+        explanation=f"{facts.get('internal_walls_count', 0)} face(s) mitoyenne(s) occluses séparant des cellules fermées. Leur suppression guérit la non-manifoldité sans ouvrir de trou.",
+        consequence="Rend l'objet non-étanche, interdit l'impression 3D, gaspille du budget polygonal et perturbe le baking.",
+        recommendation="Supprimer les parois internes après confirmation.",
+        compatible_action="meshforge.remove_internal_walls",
+        action_name="Supprimer les parois internes",
+        action_risk="Risque Contrôlé"
+    )
 
-    if facts.get("t_junctions_count", 0) > 0:
-        findings.append(DiagnosticFinding(
-            finding_id="topo_t_junctions",
-            category="TOPOLOGY",
-            name=f"Jonctions de surface / Ailerons ({facts['t_junctions_count']} faces)",
-            severity="RISK" if (strict_manifold or resolved_profile in ("MECHANICAL_CAD", "EXPORT_PREP")) else "OBSERVATION",
-            count=facts["t_junctions_count"],
-            element_type="FACE",
-            indices=facts["t_junction_indices"],
-            explanation="Surfaces rattachées formant une jonction en T (ex: aileron ou cloison ouverte). Surface potentiellement intentionnelle : aucune suppression automatique.",
-            consequence="Arête partagée par 3 faces. Non-étanche pour l'impression 3D, mais peut être normale sur un décor ou un vêtement.",
-            recommendation="Conserver si l'aileron est voulu, ou séparer les surfaces en mode Édition.",
-            manual_correction_steps=[
-                "Mode Édition (Tab) > Sélection faces (3).",
-                "Survoler l'aileron ou cloison et appuyer sur L pour sélectionner l'îlot.",
-                "Pour détacher dans un objet séparé : P > 'Sélection'.",
-                "Pour supprimer la cloison surnuméraire : X > 'Faces'."
-            ]
-        ))
+    sev_tj = "RISK" if (strict_manifold or resolved_profile in ("MECHANICAL_CAD", "EXPORT_PREP")) else "OBSERVATION"
+    _add_anomaly_findings(
+        findings_list=findings,
+        base_id="topo_t_junctions",
+        category="TOPOLOGY",
+        default_name_singular="Jonction de surface / Aileron",
+        default_name_plural="Jonctions de surface / Ailerons",
+        default_severity=sev_tj,
+        items=facts.get("t_junction_items", []),
+        total_count=facts.get("t_junctions_count", 0),
+        intentional_ids=intentional_finding_ids,
+        profile_id=resolved_profile,
+        strict_manifold=strict_manifold,
+        quads_only=quads_only,
+        explanation="Surfaces rattachées formant une jonction en T (ex: aileron ou cloison ouverte). Surface potentiellement intentionnelle : aucune suppression automatique.",
+        consequence="Arête partagée par 3 faces. Non-étanche pour l'impression 3D, mais peut être normale sur un décor ou un vêtement.",
+        recommendation="Conserver si l'aileron est voulu, ou séparer les surfaces en mode Édition.",
+        manual_correction_steps=[
+            "Mode Édition (Tab) > Sélection faces (3).",
+            "Survoler l'aileron ou cloison et appuyer sur L pour sélectionner l'îlot.",
+            "Pour détacher dans un objet séparé : P > 'Sélection'.",
+            "Pour supprimer la cloison surnuméraire : X > 'Faces'."
+        ]
+    )
 
     # 2.2b Arêtes non-manifold résiduelles
     if facts["non_manifold_edges_count"] > 0 and facts.get("internal_walls_count", 0) == 0:
-        findings.append(DiagnosticFinding(
-            finding_id="topo_non_manifold",
+        _add_anomaly_findings(
+            findings_list=findings,
+            base_id="topo_non_manifold",
             category="TOPOLOGY",
-            name=f"Arêtes non-manifold ({facts['non_manifold_edges_count']})",
-            severity="DEFECT",
-            count=facts["non_manifold_edges_count"],
-            element_type="EDGE",
-            indices=facts["non_manifold_edge_indices"],
-            center=facts["non_manifold_edge_center"],
+            default_name_singular="Arête non-manifold",
+            default_name_plural="Arêtes non-manifold",
+            default_severity="DEFECT",
+            items=facts.get("non_manifold_items", []),
+            total_count=facts["non_manifold_edges_count"],
+            intentional_ids=intentional_finding_ids,
+            profile_id=resolved_profile,
+            strict_manifold=strict_manifold,
+            quads_only=quads_only,
             explanation="Arêtes partagées par plus de 2 faces (jonction en T ou intersection complexe).",
             consequence="Rend l'objet non-étanche (non-watertight), interdit l'impression 3D et perturbe le baking.",
             recommendation="Inspecter en mode Édition ou scinder les surfaces.",
@@ -876,18 +1468,24 @@ def evaluate_structured_diagnosis(
                 "Désactiver 'Frontière' pour cibler uniquement les jonctions internes.",
                 "Dissoudre les arêtes intérieures excédentaires (X > 'Dissoudre les arêtes') ou scinder (V)."
             ]
-        ))
+        )
 
     # 2.3 Frontières ouvertes (Mesh ouvert / Tissu)
     if facts["is_open_mesh"]:
         sev_boundary = "DEFECT" if (strict_manifold or resolved_profile == "EXPORT_PREP") else ("RISK" if resolved_profile == "MECHANICAL_CAD" else "OBSERVATION")
-        findings.append(DiagnosticFinding(
-            finding_id="topo_open_boundary",
+        _add_anomaly_findings(
+            findings_list=findings,
+            base_id="topo_open_boundary",
             category="TOPOLOGY",
-            name=f"Frontière ouverte ({facts['boundary_edges_count']} arêtes de bord)",
-            severity=sev_boundary,
-            count=facts["boundary_edges_count"],
-            element_type="EDGE",
+            default_name_singular="Boucle de frontière ouverte",
+            default_name_plural="Frontière ouverte",
+            default_severity=sev_boundary,
+            items=facts.get("boundary_loops", []),
+            total_count=len(facts.get("boundary_loops", [])),
+            intentional_ids=intentional_finding_ids,
+            profile_id=resolved_profile,
+            strict_manifold=strict_manifold,
+            quads_only=quads_only,
             explanation="Le maillage possède un ou plusieurs bords ouverts (surface non fermée).",
             consequence="Normal pour un plan, une nappe de tissu ou un vêtement. Inadapté si une pièce pleine est attendue.",
             recommendation="Vérifier si le modèle est censé être un volume fermé solide.",
@@ -897,123 +1495,137 @@ def evaluate_structured_diagnosis(
                 "Pour boucher un trou simple : appuyer sur F pour créer une face.",
                 "Pour boucher avec une grille régulière : menu Face > Grid Fill (Remplir en grille)."
             ]
-        ))
+        )
 
     # 2.4 N-gones (Convexes, Concaves, Ambigus) - INTERPRÉTATION STRICTEMENT SELON PROFIL & CONTRAINTES
     if facts["total_ngons"] > 0:
         # A. Cas ambigus (Bow-tie / Torsion extrême) : DEFECT partout !
-        if facts["ngons_ambiguous_count"] > 0:
-            findings.append(DiagnosticFinding(
-                finding_id="topo_ngons_ambiguous",
-                category="TOPOLOGY",
-                name=f"N-gones ambigus / auto-intersectants ({facts['ngons_ambiguous_count']})",
-                severity="DEFECT",
-                count=facts["ngons_ambiguous_count"],
-                element_type="FACE",
-                indices=facts["ngon_ambiguous_indices"],
-                center=facts["ngon_ambiguous_center"],
-                explanation="Polygones dont les arêtes se croisent en 8 (nœud papillon) ou fortement gauchis en selle.",
-                consequence="Toute triangulation automatique produit des faces retournées et des traits noirs d'ombrage.",
-                recommendation="Sélectionnés pour découpe manuelle au couteau (K en mode Édition).",
-                refusal_reason="Refus automatique de découpe pour éviter la création de faces inversées.",
-                manual_correction_steps=[
-                    "Mode Édition (Tab) > Sélection sommets (1).",
-                    "Activer le Couteau (K) et relier deux sommets opposés pour scinder le croisement en deux faces planes.",
-                    "Alternative : supprimer la face (X > 'Seulement les faces') et reconstruire les quads manuellement avec F."
-                ]
-            ))
+        _add_anomaly_findings(
+            findings_list=findings,
+            base_id="topo_ngons_ambiguous",
+            category="TOPOLOGY",
+            default_name_singular="N-gone ambigu / auto-intersectant",
+            default_name_plural="N-gones ambigus / auto-intersectants",
+            default_severity="DEFECT",
+            items=facts.get("ngon_ambiguous_items", []),
+            total_count=facts["ngons_ambiguous_count"],
+            intentional_ids=intentional_finding_ids,
+            profile_id=resolved_profile,
+            strict_manifold=strict_manifold,
+            quads_only=quads_only,
+            explanation="Polygones dont les arêtes se croisent en 8 (nœud papillon) ou fortement gauchis en selle.",
+            consequence="Toute triangulation automatique produit des faces retournées et des traits noirs d'ombrage.",
+            recommendation="Sélectionnés pour découpe manuelle au couteau (K en mode Édition).",
+            refusal_reason="Refus automatique de découpe pour éviter la création de faces inversées.",
+            manual_correction_steps=[
+                "Mode Édition (Tab) > Sélection sommets (1).",
+                "Activer le Couteau (K) et relier deux sommets opposés pour scinder le croisement en deux faces planes.",
+                "Alternative : supprimer la face (X > 'Seulement les faces') et reconstruire les quads manuellement avec F."
+            ]
+        )
 
         # B. Cas concaves (Angles rentrants > 180°)
-        if facts["ngons_concave_count"] > 0:
-            sev_concave = "DEFECT" if (quads_only or resolved_profile in ("GAME_ASSET", "EXPORT_PREP")) else "RISK"
-            findings.append(DiagnosticFinding(
-                finding_id="topo_ngons_concave",
-                category="TOPOLOGY",
-                name=f"N-gones concaves ({facts['ngons_concave_count']})",
-                severity=sev_concave,
-                count=facts["ngons_concave_count"],
-                element_type="FACE",
-                indices=facts["ngon_concave_indices"],
-                center=facts["ngon_concave_center"],
-                explanation="Faces à plus de 4 côtés comportant des angles rentrants (concavité).",
-                consequence="La triangulation naïve en éventail chevaucherait la surface. Nécessite un Ear-Clipping orienté.",
-                recommendation="Découper les N-gones (Ear-Clipping sécurisé).",
-                compatible_action="meshforge.cut_ngons",
-                action_name="Découper les N-gones",
-                action_risk="Risque Contrôlé"
-            ))
+        sev_concave = "DEFECT" if (quads_only or resolved_profile in ("GAME_ASSET", "EXPORT_PREP")) else "RISK"
+        _add_anomaly_findings(
+            findings_list=findings,
+            base_id="topo_ngons_concave",
+            category="TOPOLOGY",
+            default_name_singular="N-gone concave",
+            default_name_plural="N-gones concaves",
+            default_severity=sev_concave,
+            items=facts.get("ngon_concave_items", []),
+            total_count=facts["ngons_concave_count"],
+            intentional_ids=intentional_finding_ids,
+            profile_id=resolved_profile,
+            strict_manifold=strict_manifold,
+            quads_only=quads_only,
+            explanation="Faces à plus de 4 côtés comportant des angles rentrants (concavité).",
+            consequence="La triangulation naïve en éventail chevaucherait la surface. Nécessite un Ear-Clipping orienté.",
+            recommendation="Découper les N-gones (Ear-Clipping sécurisé).",
+            compatible_action="meshforge.cut_ngons",
+            action_name="Découper les N-gones",
+            action_risk="Risque Contrôlé"
+        )
 
         # C. Cas convexes réguliers
         if facts["ngons_convex_count"] > 0:
             if quads_only or resolved_profile in ("GAME_ASSET", "EXPORT_PREP"):
-                sev = "DEFECT"
-                exp = "La topologie requise interdit les N-gones (triangulation ou quads obligatoires)."
-                rec = "Découper les N-gones en polygones élémentaires."
-                act = "meshforge.cut_ngons"
+                sev_cv = "DEFECT"
+                exp_cv = "La topologie requise interdit les N-gones (triangulation ou quads obligatoires)."
+                rec_cv = "Découper les N-gones en polygones élémentaires."
+                act_cv = "meshforge.cut_ngons"
             elif resolved_profile == "DEFORMABLE_CHAR":
-                sev = "RISK"
-                exp = "Les N-gones interrompent les boucles de quads (edge loops) nécessaires aux déformations d'articulation."
-                rec = "Convertir en quads pour préserver la fluidité de déformation."
-                act = "meshforge.cut_ngons"
+                sev_cv = "RISK"
+                exp_cv = "Les N-gones interrompent les boucles de quads (edge loops) nécessaires aux déformations d'articulation."
+                rec_cv = "Convertir en quads pour préserver la fluidité de déformation."
+                act_cv = "meshforge.cut_ngons"
             elif resolved_profile == "RENDER_ANIM":
-                sev = "RISK"
-                exp = "Les N-gones peuvent créer des étirements ou des plis sous subdivision de surface."
-                rec = "Découper les N-gones pour un lissage régulier."
-                act = "meshforge.cut_ngons"
+                sev_cv = "RISK"
+                exp_cv = "Les N-gones peuvent créer des étirements ou des plis sous subdivision de surface."
+                rec_cv = "Découper les N-gones pour un lissage régulier."
+                act_cv = "meshforge.cut_ngons"
             elif resolved_profile == "MECHANICAL_CAD":
-                sev = "OBSERVATION"
-                exp = "Face plane régulière à plus de 4 sommets. Courant et toléré sur les surfaces d'appui plates en CAD."
-                rec = "Conservation possible si la face reste parfaitement plane."
-                act = None
+                sev_cv = "OBSERVATION"
+                exp_cv = "Face plane régulière à plus de 4 sommets. Courant et toléré sur les surfaces d'appui plates en CAD."
+                rec_cv = "Conservation possible si la face reste parfaitement plane."
+                act_cv = None
             else:  # GENERAL, SCULPTED_ORGANIC, CUSTOM
-                sev = "OBSERVATION"
-                exp = f"Face convexe à plus de 4 sommets. Ne pose pas de problème immédiat hors contrainte stricte."
-                rec = "Découpe recommandée si vous prévoyez une subdivision ou un export temps réel."
-                act = "meshforge.cut_ngons"
+                sev_cv = "OBSERVATION"
+                exp_cv = f"Face convexe à plus de 4 sommets. Ne pose pas de problème immédiat hors contrainte stricte."
+                rec_cv = "Découpe recommandée si vous prévoyez une subdivision ou un export temps réel."
+                act_cv = "meshforge.cut_ngons"
 
-            findings.append(DiagnosticFinding(
-                finding_id="topo_ngons_convex",
+            _add_anomaly_findings(
+                findings_list=findings,
+                base_id="topo_ngons_convex",
                 category="TOPOLOGY",
-                name=f"N-gones convexes ({facts['ngons_convex_count']})",
-                severity=sev,
-                count=facts["ngons_convex_count"],
-                element_type="FACE",
-                indices=facts["ngon_convex_indices"],
-                center=facts["ngon_convex_center"],
-                explanation=exp,
+                default_name_singular="N-gone convexe",
+                default_name_plural="N-gones convexes",
+                default_severity=sev_cv,
+                items=facts.get("ngon_convex_items", []),
+                total_count=facts["ngons_convex_count"],
+                intentional_ids=intentional_finding_ids,
+                profile_id=resolved_profile,
+                strict_manifold=strict_manifold,
+                quads_only=quads_only,
+                explanation=exp_cv,
                 consequence="Comportement variable selon l'usage final de l'objet.",
-                recommendation=rec,
-                compatible_action=act,
-                action_name="Découper les N-gones" if act else "",
-                action_risk="Risque Contrôlé" if act else ""
-            ))
+                recommendation=rec_cv,
+                compatible_action=act_cv,
+                action_name="Découper les N-gones" if act_cv else "",
+                action_risk="Risque Contrôlé" if act_cv else ""
+            )
 
     # =========================================================================
     # 3. SILHOUETTE & QUALITÉ DE SURFACE
     # =========================================================================
 
     # 3.1 Triangles très étirés (Needles / Aiguilles)
-    if facts["needle_triangles_count"] > 0:
-        sev = "RISK" if resolved_profile in ("GAME_ASSET", "SCULPTED_ORGANIC") else "OBSERVATION"
-        findings.append(DiagnosticFinding(
-            finding_id="surface_needle_triangles",
-            category="SURFACE",
-            name=f"Triangles très étirés ({facts['needle_triangles_count']})",
-            severity=sev,
-            count=facts["needle_triangles_count"],
-            metric_value=facts["needle_max_aspect"],
-            metric_unit=":1 (ratio max)",
-            element_type="FACE",
-            indices=facts["needle_triangle_indices"],
-            explanation=f"Triangles présentant un ratio de côtés supérieur à 8:1 (max mesuré {facts['needle_max_aspect']:.1f}:1).",
-            consequence="Dégradent le Smooth Shading et provoquent des balafres noires (artefact du Normal Terminator).",
-            recommendation="Équilibrer les arêtes ou éviter la décimation native non contrainte.",
-            manual_correction_steps=[
-                "Mode Édition (Tab) > Sélection arêtes (2).",
-                "Sélectionner l'arête courte opposée au sommet aigu.",
-                "Dissoudre l'arête (Ctrl+X) ou faire Ctrl+E > 'Tourner l'arête dans le sens horaire' (Edge Flip)."
-            ]
-        ))
+    sev_needle = "RISK" if resolved_profile in ("GAME_ASSET", "SCULPTED_ORGANIC") else "OBSERVATION"
+    _add_anomaly_findings(
+        findings_list=findings,
+        base_id="surface_needle_triangles",
+        category="SURFACE",
+        default_name_singular="Triangle très étiré",
+        default_name_plural="Triangles très étirés",
+        default_severity=sev_needle,
+        items=facts.get("needle_triangle_items", []),
+        total_count=facts["needle_triangles_count"],
+        intentional_ids=intentional_finding_ids,
+        profile_id=resolved_profile,
+        strict_manifold=strict_manifold,
+        quads_only=quads_only,
+        explanation=f"Triangles présentant un ratio de côtés supérieur à 8:1 (max mesuré {facts['needle_max_aspect']:.1f}:1).",
+        consequence="Dégradent le Smooth Shading et provoquent des balafres noires (artefact du Normal Terminator).",
+        recommendation="Équilibrer les arêtes ou éviter la décimation native non contrainte.",
+        manual_correction_steps=[
+            "Mode Édition (Tab) > Sélection arêtes (2).",
+            "Sélectionner l'arête courte opposée au sommet aigu.",
+            "Dissoudre l'arête (Ctrl+X) ou faire Ctrl+E > 'Tourner l'arête dans le sens horaire' (Edge Flip)."
+        ],
+        metric_value=facts["needle_max_aspect"],
+        metric_unit=":1 (ratio max)"
+    )
 
     # =========================================================================
     # 4. PRÉPARATION À LA DÉFORMATION & GÉOMÉTRIE QUADS
@@ -1021,43 +1633,51 @@ def evaluate_structured_diagnosis(
 
     if quads_only or resolved_profile in ("DEFORMABLE_CHAR", "RENDER_ANIM"):
         # 4.1 Triangles au milieu de quads
-        if facts["tris_count"] > 0:
-            sev_tri = "DEFECT" if quads_only else "RISK"
-            findings.append(DiagnosticFinding(
-                finding_id="deform_tris_in_quads",
-                category="DEFORMATION",
-                name=f"Triangles dans un maillage quad ({facts['tris_count']})",
-                severity=sev_tri,
-                count=facts["tris_count"],
-                element_type="FACE",
-                explanation=f"Le maillage contient {facts['tris_count']} triangle(s) au milieu de {facts['quads_count']} quad(s).",
-                consequence="Un triangle interrompt la trajectoire d'une boucle d'arêtes (Edge Loop) et peut créer un pli rigide au pliage.",
-                recommendation="Fusionner les paires de triangles coplanaires en quads réguliers (Quadrangulation ciblée).",
-                compatible_action="meshforge.quadrangulate",
-                action_name="Quadrangulation ciblée",
-                action_risk="Risque Faible"
-            ))
+        sev_tri = "DEFECT" if quads_only else "RISK"
+        _add_anomaly_findings(
+            findings_list=findings,
+            base_id="deform_tris_in_quads",
+            category="DEFORMATION",
+            default_name_singular="Triangle en zone déformable",
+            default_name_plural="Triangles dans un maillage quad",
+            default_severity=sev_tri,
+            items=facts.get("tri_items", []),
+            total_count=facts["tris_count"],
+            intentional_ids=intentional_finding_ids,
+            profile_id=resolved_profile,
+            strict_manifold=strict_manifold,
+            quads_only=quads_only,
+            explanation=f"Le maillage contient {facts['tris_count']} triangle(s) au milieu de {facts['quads_count']} quad(s).",
+            consequence="Un triangle interrompt la trajectoire d'une boucle d'arêtes (Edge Loop) et peut créer un pli rigide au pliage.",
+            recommendation="Fusionner les paires de triangles coplanaires en quads réguliers (Quadrangulation ciblée).",
+            compatible_action="meshforge.quadrangulate",
+            action_name="Quadrangulation ciblée",
+            action_risk="Risque Faible"
+        )
 
         # 4.2 Pôles à haute valence (valence >= 6)
-        if facts["poles_valence_6_plus_count"] > 0:
-            findings.append(DiagnosticFinding(
-                finding_id="deform_high_valence_poles",
-                category="DEFORMATION",
-                name=f"Pôles complexes valence >= 6 ({facts['poles_valence_6_plus_count']})",
-                severity="RISK",
-                count=facts["poles_valence_6_plus_count"],
-                element_type="VERT",
-                indices=facts["poles_6_plus_indices"],
-                center=facts["poles_6_plus_center"],
-                explanation=f"{facts['poles_valence_6_plus_count']} sommet(s) intérieur(s) connectent 6 arêtes ou plus.",
-                consequence="Les pôles à haute valence provoquent des plis en étoile et des déformations chaotiques sous l'influence des os.",
-                recommendation="Rediriger les arêtes pour scinder les pôles en valences 4 ou 5.",
-                manual_correction_steps=[
-                    "Mode Édition (Tab) > Sélection sommets (1).",
-                    "Cadrer sur le pôle complexe.",
-                    "Utiliser le Couteau (K) ou glissement de sommets (G deux fois) pour scinder le pôle en valences 4 ou 5."
-                ]
-            ))
+        _add_anomaly_findings(
+            findings_list=findings,
+            base_id="deform_high_valence_poles",
+            category="DEFORMATION",
+            default_name_singular="Pôle complexe valence >= 6",
+            default_name_plural="Pôles complexes valence >= 6",
+            default_severity="RISK",
+            items=facts.get("pole_items", []),
+            total_count=facts["poles_valence_6_plus_count"],
+            intentional_ids=intentional_finding_ids,
+            profile_id=resolved_profile,
+            strict_manifold=strict_manifold,
+            quads_only=quads_only,
+            explanation=f"{facts['poles_valence_6_plus_count']} sommet(s) intérieur(s) connectent 6 arêtes ou plus.",
+            consequence="Les pôles à haute valence provoquent des plis en étoile et des déformations chaotiques sous l'influence des os.",
+            recommendation="Rediriger les arêtes pour scinder les pôles en valences 4 ou 5.",
+            manual_correction_steps=[
+                "Mode Édition (Tab) > Sélection sommets (1).",
+                "Cadrer sur le pôle complexe.",
+                "Utiliser le Couteau (K) ou glissement de sommets (G deux fois) pour scinder le pôle en valences 4 ou 5."
+            ]
+        )
 
     # =========================================================================
     # 5. DENSITÉ POLYGONALE & STATISTIQUES
@@ -1140,15 +1760,21 @@ def evaluate_structured_diagnosis(
         ))
 
     # =========================================================================
-    # 6.b TRAITEMENT DES GÉOMÉTRIES MARQUÉES COMME INTENTIONNELLES (Partie C)
+    # 6.b TRAITEMENT DES VALIDATIONS RÉINITIALISÉES (P0)
     # =========================================================================
-    for f in findings:
-        if f.id in intentional_finding_ids:
-            f.is_intentional = True
-            f.severity = "OBSERVATION"
-            f.name = f"[Intentionnel] {f.name}"
-            f.explanation = f"[Validé comme géométrie intentionnelle par l'utilisateur] {f.explanation}"
-            f.recommendation = "Géométrie conservée conformément au choix utilisateur."
+    pruned = facts.get("pruned_validations", [])
+    if pruned:
+        findings.append(DiagnosticFinding(
+            finding_id="audit_pruned_validations",
+            category="TOPOLOGY",
+            name=f"Validations réinitialisées ({len(pruned)})",
+            severity="OBSERVATION",
+            count=len(pruned),
+            element_type="OBJECT",
+            explanation=f"{len(pruned)} anomalie(s) précédemment marquée(s) intentionnelle(s) ont été réinitialisées suite à la modification ou suppression de leur géométrie.",
+            consequence="Garantit qu'aucune validation n'est conservée de façon silencieuse ou erronée.",
+            recommendation="Si la nouvelle géométrie reste délibérée, re-marquez l'anomalie correspondante."
+        ))
 
     # =========================================================================
     # 7. SÉLECTION ET PRIORISATION DES RECOMMANDATIONS (Les 4 Catégories UX)
@@ -1160,23 +1786,37 @@ def evaluate_structured_diagnosis(
     rec_observations = []
     recommended_actions = []
 
-    # 7.1 Catégorie 1 : Corrections conservatrices recommandées
+    # 7.1 Catégorie 1 : Corrections conservatrices recommandées (items actifs non intentionnels)
+    active_zero = [it for it in facts.get("zero_area_items", []) if not _is_intentional("geom_zero_area_faces", str(it.get("item_id", it.get("index", "0"))), len(facts.get("zero_area_items", [])), intentional_finding_ids)]
+    active_loose = [it for it in facts.get("loose_vert_items", []) if not _is_intentional("geom_loose_verts", str(it.get("item_id", it.get("index", "0"))), len(facts.get("loose_vert_items", [])), intentional_finding_ids)]
+    active_wire = [it for it in facts.get("wire_edge_items", []) if not _is_intentional("topo_wire_edges", str(it.get("item_id", it.get("index", "0"))), len(facts.get("wire_edge_items", [])), intentional_finding_ids)]
+    active_micro = [it for it in facts.get("micro_edge_items", []) if not _is_intentional("geom_micro_edges", str(it.get("item_id", it.get("index", "0"))), len(facts.get("micro_edge_items", [])), intentional_finding_ids)]
+    active_walls = [it for it in facts.get("internal_wall_items", []) if not _is_intentional("topo_internal_walls", str(it.get("item_id", it.get("index", "0"))), len(facts.get("internal_wall_items", [])), intentional_finding_ids)]
+
     has_conservative_clean_needs = (
-        (facts["zero_area_faces_count"] > 0 and "geom_zero_area_faces" not in intentional_finding_ids) or
-        (facts["loose_verts_count"] > 0 and "geom_loose_verts" not in intentional_finding_ids) or
-        (facts["wire_edges_count"] > 0 and "topo_wire_edges" not in intentional_finding_ids) or
-        (facts["micro_edges_count"] > 0 and resolved_profile == "MECHANICAL_CAD" and "geom_micro_edges" not in intentional_finding_ids)
+        len(active_zero) > 0 or
+        len(active_loose) > 0 or
+        len(active_wire) > 0 or
+        (len(active_micro) > 0 and resolved_profile == "MECHANICAL_CAD")
     )
     if has_conservative_clean_needs:
         reasons = []
-        if facts["loose_verts_count"] > 0 and "geom_loose_verts" not in intentional_finding_ids:
-            reasons.append(f"{facts['loose_verts_count']} sommet(s) orphelin(s)")
-        if facts["zero_area_faces_count"] > 0 and "geom_zero_area_faces" not in intentional_finding_ids:
-            reasons.append(f"{facts['zero_area_faces_count']} face(s) d'aire nulle")
-        if facts["wire_edges_count"] > 0 and "topo_wire_edges" not in intentional_finding_ids:
-            reasons.append(f"{facts['wire_edges_count']} arête(s) sans face")
-        if facts["micro_edges_count"] > 0 and resolved_profile == "MECHANICAL_CAD" and "geom_micro_edges" not in intentional_finding_ids:
-            reasons.append(f"{facts['micro_edges_count']} arête(s) minuscules")
+        if len(active_loose) > 0:
+            reasons.append(f"{len(active_loose)} sommet(s) orphelin(s)")
+        if len(active_zero) > 0:
+            reasons.append(f"{len(active_zero)} face(s) d'aire nulle")
+        if len(active_wire) > 0:
+            reasons.append(f"{len(active_wire)} arête(s) sans face")
+        if len(active_micro) > 0 and resolved_profile == "MECHANICAL_CAD":
+            reasons.append(f"{len(active_micro)} arête(s) minuscules")
+
+        f_focus_id = "geom_zero_area_faces"
+        if len(active_zero) > 0:
+            f_focus_id = "geom_zero_area_faces" if len(facts.get("zero_area_items", [])) == 1 else f"geom_zero_area_faces:{active_zero[0]['item_id']}"
+        elif len(active_loose) > 0:
+            f_focus_id = "geom_loose_verts" if len(facts.get("loose_vert_items", [])) == 1 else f"geom_loose_verts:{active_loose[0]['item_id']}"
+        elif len(active_wire) > 0:
+            f_focus_id = "topo_wire_edges" if len(facts.get("wire_edge_items", [])) == 1 else f"topo_wire_edges:{active_wire[0]['item_id']}"
 
         rec_c = {
             "id": "rec_conservative_clean",
@@ -1190,7 +1830,7 @@ def evaluate_structured_diagnosis(
             "operator": "meshforge.conservative_clean",
             "operator_text": "Nettoyer les dégénérescences",
             "operator_icon": "BRUSH_DATA",
-            "focus_id": "geom_zero_area_faces" if facts["zero_area_faces_count"] > 0 else "geom_loose_verts"
+            "focus_id": f_focus_id
         }
         rec_conservative.append(rec_c)
         recommended_actions.append({
@@ -1205,127 +1845,138 @@ def evaluate_structured_diagnosis(
             "safety_note": "Transaction réversible : rollback automatique en cas d'erreur."
         })
 
-    if facts.get("internal_walls_count", 0) > 0 and "topo_internal_walls" not in intentional_finding_ids:
+    if len(active_walls) > 0:
+        f_iw_id = "topo_internal_walls" if len(facts.get("internal_wall_items", [])) == 1 else f"topo_internal_walls:{active_walls[0]['item_id']}"
         rec_iw = {
             "id": "rec_internal_walls",
             "title": "Suppression des parois internes mitoyennes",
-            "problem": f"{facts['internal_walls_count']} face(s) mitoyenne(s) occluse(s) séparant des cellules fermées",
+            "problem": f"{len(active_walls)} face(s) mitoyenne(s) occluse(s) séparant des cellules fermées",
             "zone": "Cloisons internes mitoyennes non visibles de l'extérieur",
             "effect": "Supprime les parois intérieures pour restaurer un volume manifold étanche sans trou",
             "data_impact": "Coque extérieure intacte. UVs, coutures et matériaux strictement préservés",
             "reversibility": "Réversible (Ctrl+Z) / Rollback si ouverture de bord involontaire",
             "confidence": "Élevé (Cellules fermées et occlusions démontrées)",
             "operator": "meshforge.remove_internal_walls",
-            "operator_text": f"Supprimer les parois internes ({facts['internal_walls_count']})",
+            "operator_text": f"Supprimer les parois internes ({len(active_walls)})",
             "operator_icon": "X",
-            "focus_id": "topo_internal_walls"
+            "focus_id": f_iw_id
         }
         rec_conservative.append(rec_iw)
         recommended_actions.append({
             "id": "remove_internal_walls",
             "operator": "meshforge.remove_internal_walls",
-            "label": f"Supprimer les parois internes ({facts['internal_walls_count']} faces)",
+            "label": f"Supprimer les parois internes ({len(active_walls)} faces)",
             "icon": 'X',
             "risk_badge": "[Risque Contrôlé]",
             "risk_level": "CONTROLLED",
-            "justification": f"Élimine {facts['internal_walls_count']} face(s) mitoyenne(s) occluses pour restaurer un volume fermé manifold.",
+            "justification": f"Élimine {len(active_walls)} face(s) mitoyenne(s) occluses pour restaurer un volume fermé manifold.",
             "data_impact": "Supprime les faces intérieures sans ouvrir de trou dans la coque externe.",
             "safety_note": "Confirmation explicite requise. Rollback automatique si déviation."
         })
 
-    # 7.2 Catégorie 2 : Optimisations ciblées pour l'objectif
+    # 7.2 Catégorie 2 : Optimisations ciblées pour l'objectif (items actifs)
+    active_concave = [it for it in facts.get("ngon_concave_items", []) if not _is_intentional("topo_ngons_concave", str(it.get("item_id", it.get("index", "0"))), len(facts.get("ngon_concave_items", [])), intentional_finding_ids)]
+    active_convex = [it for it in facts.get("ngon_convex_items", []) if not _is_intentional("topo_ngons_convex", str(it.get("item_id", it.get("index", "0"))), len(facts.get("ngon_convex_items", [])), intentional_finding_ids)]
+    active_ngons_total = len(active_concave) + len(active_convex)
+
     need_cut_ngons = (
-        (facts["total_ngons"] > 0) and (
+        (active_ngons_total > 0) and (
             quads_only or
-            facts["ngons_concave_count"] > 0 or
+            len(active_concave) > 0 or
             resolved_profile in ("GAME_ASSET", "DEFORMABLE_CHAR", "EXPORT_PREP", "RENDER_ANIM")
-        ) and (
-            "topo_ngons_concave" not in intentional_finding_ids and
-            "topo_ngons_convex" not in intentional_finding_ids
         )
     )
     if need_cut_ngons:
         reasons_ngon = []
-        if facts["ngons_concave_count"] > 0:
-            reasons_ngon.append(f"{facts['ngons_concave_count']} concave(s)")
-        if facts["ngons_convex_count"] > 0:
-            reasons_ngon.append(f"{facts['ngons_convex_count']} convexe(s)")
+        if len(active_concave) > 0:
+            reasons_ngon.append(f"{len(active_concave)} concave(s)")
+        if len(active_convex) > 0:
+            reasons_ngon.append(f"{len(active_convex)} convexe(s)")
+
+        if len(active_concave) > 0:
+            f_ng_focus = "topo_ngons_concave" if len(facts.get("ngon_concave_items", [])) == 1 else f"topo_ngons_concave:{active_concave[0]['item_id']}"
+        else:
+            f_ng_focus = "topo_ngons_convex" if len(facts.get("ngon_convex_items", [])) == 1 else f"topo_ngons_convex:{active_convex[0]['item_id']}"
 
         rec_ngon = {
             "id": "rec_cut_ngons",
             "title": "Découpe sécurisée des N-gones",
-            "problem": f"{facts['total_ngons']} N-gone(s) détecté(s) ({', '.join(reasons_ngon)})",
+            "problem": f"{active_ngons_total} N-gone(s) détecté(s) ({', '.join(reasons_ngon)})",
             "zone": "Faces à plus de 4 sommets",
             "effect": "Découpe en polygones gérables via Ear-clipping sécurisé et Beauty triangulation",
             "data_impact": "Coordonnées UV interpolées sans étirement, coutures et matériaux préservés",
             "reversibility": "Réversible (Ctrl+Z)",
             "confidence": "Très élevé (Cas ambigus exclus pour découpe manuelle)",
             "operator": "meshforge.cut_ngons",
-            "operator_text": f"Découper les {facts['total_ngons']} N-gones",
+            "operator_text": f"Découper les {active_ngons_total} N-gones",
             "operator_icon": "MOD_TRIANGULATE",
-            "focus_id": "topo_ngons_concave" if facts["ngons_concave_count"] > 0 else "topo_ngons_convex"
+            "focus_id": f_ng_focus
         }
         rec_targeted.append(rec_ngon)
         recommended_actions.append({
             "id": "cut_ngons",
             "operator": "meshforge.cut_ngons",
-            "label": f"Découper les N-gones ({facts['total_ngons']})",
+            "label": f"Découper les N-gones ({active_ngons_total})",
             "icon": 'MOD_TRIANGULATE',
             "risk_badge": "[Risque Contrôlé]",
             "risk_level": "CONTROLLED",
-            "justification": f"Résout : {facts['total_ngons']} N-gones pour l'objectif {p_info['name']}.",
+            "justification": f"Résout : {active_ngons_total} N-gones pour l'objectif {p_info['name']}.",
             "data_impact": "Triangulation Beauty / Ear-Clipping. Préserve les UVs et matériaux.",
             "safety_note": f"Les cas ambigus ({facts['ngons_ambiguous_count']}) sont refusés et isolés pour découpe manuelle."
         })
 
+    active_tris = [it for it in facts.get("tri_items", []) if not _is_intentional("deform_tris_in_quads", str(it.get("item_id", it.get("index", "0"))), len(facts.get("tri_items", [])), intentional_finding_ids)]
     need_quadrangulate = (
-        (facts["tris_count"] >= 2) and (
+        (len(active_tris) >= 2) and (
             quads_only or
             resolved_profile in ("DEFORMABLE_CHAR", "RENDER_ANIM", "HARD_SURFACE", "GENERAL")
-        ) and "deform_tris_in_quads" not in intentional_finding_ids
+        )
     )
     if need_quadrangulate:
+        f_tri_focus = "deform_tris_in_quads" if len(facts.get("tri_items", [])) == 1 else f"deform_tris_in_quads:{active_tris[0]['item_id']}"
         rec_quad = {
             "id": "rec_quadrangulate",
             "title": "Quadrangulation ciblée (Tris -> Quads)",
-            "problem": f"{facts['tris_count']} triangle(s) au milieu de {facts['quads_count']} quad(s)",
+            "problem": f"{len(active_tris)} triangle(s) au milieu de {facts['quads_count']} quad(s)",
             "zone": "Paires de triangles adjacents coplanaires",
             "effect": "Reconstitue des quads réguliers pour fluidifier la déformation et le lissage",
             "data_impact": "Aire préservée, respect strict des coutures UV, arêtes vives et matériaux",
             "reversibility": "Réversible (Ctrl+Z) / Rollback si altération géométrique",
             "confidence": "Élevé (Tolérance angulaire stricte de planéité)",
             "operator": "meshforge.quadrangulate",
-            "operator_text": f"Quadranguler les triangles ({facts['tris_count']} tris)",
+            "operator_text": f"Quadranguler les triangles ({len(active_tris)} tris)",
             "operator_icon": "SNAP_FACE",
-            "focus_id": "deform_tris_in_quads"
+            "focus_id": f_tri_focus
         }
         rec_targeted.append(rec_quad)
         recommended_actions.append({
             "id": "quadrangulate",
             "operator": "meshforge.quadrangulate",
-            "label": f"Quadranguler les triangles coplanaires ({facts['tris_count']} tris)",
+            "label": f"Quadranguler les triangles coplanaires ({len(active_tris)} tris)",
             "icon": 'SNAP_FACE',
             "risk_badge": "[Risque Faible]",
             "risk_level": "LOW",
-            "justification": f"Fusionne les paires de triangles coplanaires ({facts['tris_count']} triangles détectés) en quads réguliers.",
+            "justification": f"Fusionne les paires de triangles coplanaires ({len(active_tris)} triangles détectés) en quads réguliers.",
             "data_impact": "Préserve strictement les coutures UV, arêtes vives, matériaux et l'aire du maillage.",
             "safety_note": "Transaction réversible : rollback automatique en cas de déviation géométrique."
         })
 
     # 7.3 Catégorie 3 : Actions à risque à examiner individuellement (avec étapes manuelles)
     raw_rec_risky = []
-    if facts.get("ngons_ambiguous_count", 0) > 0:
+    active_ambiguous = [it for it in facts.get("ngon_ambiguous_items", []) if not _is_intentional("topo_ngons_ambiguous", str(it.get("item_id", it.get("index", "0"))), len(facts.get("ngon_ambiguous_items", [])), intentional_finding_ids)]
+    if len(active_ambiguous) > 0:
+        f_amb_focus = "topo_ngons_ambiguous" if len(facts.get("ngon_ambiguous_items", [])) == 1 else f"topo_ngons_ambiguous:{active_ambiguous[0]['item_id']}"
         raw_rec_risky.append({
             "id": "rec_risky_ngons_ambiguous",
             "title": "N-gones ambigus / auto-intersectants",
-            "problem": f"{facts['ngons_ambiguous_count']} face(s) en nœud papillon ou à forte torsion de planéité",
+            "problem": f"{len(active_ambiguous)} face(s) en nœud papillon ou à forte torsion de planéité",
             "zone": "Polygones auto-intersectants ou en selle",
             "effect": "La découpe automatique risquerait d'inverser des normales. Découpe manuelle conseillée (K au couteau)",
             "data_impact": "Aucune altération automatique appliquée",
             "reversibility": "Sans objet (opération refusée par précaution)",
             "confidence": "Refus préventif de sécurité",
             "operator": None,
-            "focus_id": "topo_ngons_ambiguous",
+            "focus_id": f_amb_focus,
             "manual_correction_steps": [
                 "Mode Édition (Tab) > Sélection sommets (1).",
                 "Outil Couteau (K) : couper entre deux sommets opposés pour séparer le croisement.",
@@ -1333,18 +1984,20 @@ def evaluate_structured_diagnosis(
             ]
         })
 
-    if facts.get("t_junctions_count", 0) > 0:
+    active_tj = [it for it in facts.get("t_junction_items", []) if not _is_intentional("topo_t_junctions", str(it.get("item_id", it.get("index", "0"))), len(facts.get("t_junction_items", [])), intentional_finding_ids)]
+    if len(active_tj) > 0:
+        f_tj_focus = "topo_t_junctions" if len(facts.get("t_junction_items", [])) == 1 else f"topo_t_junctions:{active_tj[0]['item_id']}"
         raw_rec_risky.append({
             "id": "rec_risky_t_junctions",
             "title": "Jonctions de surface / Ailerons rattachés",
-            "problem": f"{facts['t_junctions_count']} face(s) formant une jonction en T (arêtes à 3 faces)",
+            "problem": f"{len(active_tj)} face(s) formant une jonction en T (arêtes à 3 faces)",
             "zone": "Cloisons ouvertes ou ailerons rattachés à la coque",
             "effect": "Surface potentiellement intentionnelle (décor, vêtement, aileron). Ne jamais supprimer sans inspection",
             "data_impact": "Surfaces utiles visibles",
             "reversibility": "Non altéré sans action utilisateur",
             "confidence": "Nécessite arbitrage visuel humain",
             "operator": None,
-            "focus_id": "topo_t_junctions",
+            "focus_id": f_tj_focus,
             "manual_correction_steps": [
                 "Mode Édition (Tab) > Sélection faces (3).",
                 "Survoler l'aileron et appuyer sur L pour sélectionner l'îlot mitoyen.",
@@ -1353,18 +2006,20 @@ def evaluate_structured_diagnosis(
             ]
         })
 
-    if facts.get("non_manifold_edges_count", 0) > 0 and facts.get("internal_walls_count", 0) == 0:
+    active_nm = [it for it in facts.get("non_manifold_items", []) if not _is_intentional("topo_non_manifold", str(it.get("item_id", it.get("index", "0"))), len(facts.get("non_manifold_items", [])), intentional_finding_ids)]
+    if len(active_nm) > 0 and len(active_walls) == 0:
+        f_nm_focus = "topo_non_manifold" if len(facts.get("non_manifold_items", [])) == 1 else f"topo_non_manifold:{active_nm[0]['item_id']}"
         raw_rec_risky.append({
             "id": "rec_risky_non_manifold",
             "title": "Arêtes non-manifold complexes",
-            "problem": f"{facts['non_manifold_edges_count']} arête(s) connectée(s) à 3 faces ou plus sans cellule fermée",
+            "problem": f"{len(active_nm)} arête(s) connectée(s) à 3 faces ou plus sans cellule fermée",
             "zone": "Lignes de jonction non conformes",
             "effect": "Rend le maillage non-étanche (non-watertight). Inspection recommandée avant export ou impression",
             "data_impact": "Connectivité de surface",
             "reversibility": "Non altéré automatiquement",
             "confidence": "À vérifier manuellement",
             "operator": None,
-            "focus_id": "topo_non_manifold",
+            "focus_id": f_nm_focus,
             "manual_correction_steps": [
                 "Mode Édition (Tab) > Sélection arêtes (2).",
                 "Menu Sélectionner > Sélectionner par trait > Non-Manifold (Maj+Ctrl+Alt+M).",
@@ -1373,26 +2028,56 @@ def evaluate_structured_diagnosis(
             ]
         })
 
-    # Filtrage des éléments intentionnels de Catégorie 3 vers Catégorie 4
-    for card in raw_rec_risky:
-        focus_id = card.get("focus_id", "")
-        if focus_id in intentional_finding_ids:
+    rec_risky.extend(raw_rec_risky)
+
+    # Éléments intentionnels non conformes avec sévérité RISK (points de vigilance sous objectif strict)
+    for f in findings:
+        if getattr(f, "is_intentional", False) and getattr(f, "severity", "") == "RISK":
+            rec_risky.append({
+                "id": f"rec_risky_intentional_{f.id.replace(':', '_')}",
+                "title": f.name,
+                "problem": f.explanation,
+                "zone": "Géométrie validée intentionnelle mais non conforme à l'objectif actif",
+                "effect": "Attention : cette géométrie voulue empêche la conformité stricte de l'asset (ex: étanchéité ou topologie).",
+                "data_impact": "Préservé conformément à votre choix",
+                "reversibility": "Réversible (Désélectionner le marquage intentionnel)",
+                "confidence": "Vigilance requise",
+                "operator": None,
+                "focus_id": f.id,
+                "is_intentional": True
+            })
+
+    # 7.4 Catégorie 4 : Observations sans action requise
+    # Éléments intentionnels conformes (severity OBSERVATION)
+    for f in findings:
+        if getattr(f, "is_intentional", False) and getattr(f, "severity", "") == "OBSERVATION":
             rec_observations.append({
-                "id": f"obs_intentional_{card['id']}",
-                "title": f"[Intentionnel] {card['title']}",
-                "problem": f"{card['problem']} (validé comme intentionnel par l'utilisateur)",
-                "zone": card.get("zone", "Zone identifiée"),
+                "id": f"obs_intentional_{f.id.replace(':', '_')}",
+                "title": f.name,
+                "problem": f.explanation,
+                "zone": "Géométrie validée intentionnelle",
                 "effect": "Conservé tel quel. Exclu du calcul des erreurs.",
                 "data_impact": "Non altéré",
                 "reversibility": "Réversible (Désélectionner le marquage intentionnel)",
                 "confidence": "Validé intentionnel",
                 "is_intentional": True,
-                "focus_id": focus_id
+                "focus_id": f.id
             })
-        else:
-            rec_risky.append(card)
 
-    # 7.4 Catégorie 4 : Observations sans action requise
+    # Validations réinitialisées / purgées
+    if pruned:
+        rec_observations.append({
+            "id": "obs_pruned_validations",
+            "title": "Validations réinitialisées après modification",
+            "problem": f"{len(pruned)} validation(s) intentionnelle(s) réinitialisées (géométrie modifiée ou résolue)",
+            "zone": "Éléments précédemment validés",
+            "effect": "Nettoyage automatique du cache pour éviter toute validation obsolète ou silencieuse",
+            "data_impact": "Sécurité garantie : aucune validation douteuse n'est conservée",
+            "reversibility": "Re-valider si la nouvelle géométrie est intentionnelle",
+            "confidence": "Contrôlé",
+            "is_intentional": False
+        })
+
     quad_ratio = (facts['quads_count'] / max(1, facts['polygon_count'])) * 100.0
     rec_observations.append({
         "id": "obs_quads",
