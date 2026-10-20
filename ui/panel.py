@@ -54,7 +54,7 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         # 2. CHOISIR SON OBJECTIF (LES 3 MODES D'ASSET)
         # ---------------------------------------------------------
         box_mode = layout.box()
-        box_mode.label(text="1. Choisir votre objectif :", icon='TARGET')
+        box_mode.label(text="1. Choisir votre objectif :", icon='TRACKING')
         col_m = box_mode.column(align=True)
         col_m.prop(props, "asset_target_mode", text="")
 
@@ -207,7 +207,7 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
         if props.show_expert_mode:
             box_flow = box_exp_toggle.box()
-            box_flow.label(text="Sécurité & Préservation :", icon='SHIELD')
+            box_flow.label(text="Sécurité & Préservation :", icon='LOCKED')
             box_flow.prop(props, "create_new_object")
             if props.create_new_object:
                 box_flow.prop(props, "hide_original")

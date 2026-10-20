@@ -227,6 +227,43 @@ class TestMeshForgePhaseD1Interactive(unittest.TestCase):
 
         print(f"\n[PREUVE VISUELLE D1] Capture rendue avec succès dans : {render_path}")
 
+    def test_11_panel_draw_all_modes_and_icons(self):
+        """11. Vérifie que le panneau principal et toutes ses sous-sections se dessinent sans erreur ni icône invalide."""
+        from meshforge.ui.panel import VIEW3D_PT_meshforge_main
+
+        obj = self._create_multi_defect_asset()
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+
+        # Lancer le diagnostic pour alimenter le cache et les badges d'anomalies
+        bpy.ops.meshforge.analyze_topology()
+
+        class DummyPanelDrawOp(bpy.types.Operator):
+            bl_idname = "wm.meshforge_test_panel_draw"
+            bl_label = "Test Draw"
+            def draw(self, context):
+                panel = VIEW3D_PT_meshforge_main()
+                panel.layout = self.layout
+                panel.draw(context)
+            def execute(self, context):
+                return {'FINISHED'}
+
+        bpy.utils.register_class(DummyPanelDrawOp)
+        try:
+            props = bpy.context.scene.meshforge_settings
+            # Tester tous les modes d'asset
+            for mode in ['GAME_TRIANGLES', 'DEFORMABLE_QUADS', 'HYBRID_CLEANUP']:
+                props.asset_target_mode = mode
+                res = bpy.ops.wm.meshforge_test_panel_draw('INVOKE_DEFAULT')
+                self.assertEqual(res, {'FINISHED'})
+
+            # Tester avec le mode expert ouvert
+            props.show_expert_mode = True
+            res = bpy.ops.wm.meshforge_test_panel_draw('INVOKE_DEFAULT')
+            self.assertEqual(res, {'FINISHED'})
+        finally:
+            bpy.utils.unregister_class(DummyPanelDrawOp)
+
 
 if __name__ == "__main__":
     suite = unittest.TestLoader().loadTestsFromTestCase(TestMeshForgePhaseD1Interactive)
