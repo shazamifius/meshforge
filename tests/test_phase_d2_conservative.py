@@ -52,6 +52,8 @@ class TestMeshForgePhaseD2Conservative(unittest.TestCase):
 
     def setUp(self):
         bpy.ops.wm.read_factory_settings(use_empty=True)
+        if not hasattr(bpy.types.Scene, "meshforge_settings"):
+            meshforge.register()
 
     def test_01_clean_loose_vertices_zero_risk(self):
         """1. Vérifie la suppression des sommets orphelins sans aucune altération des faces et arêtes."""

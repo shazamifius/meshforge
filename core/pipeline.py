@@ -89,6 +89,10 @@ def run_meshforge_pipeline(source_obj: bpy.types.Object, props: Any) -> Dict[str
         report["errors"].append("Sélectionnez un objet de type maillage (MESH).")
         return report
 
+    if source_obj.mode != 'OBJECT' or getattr(source_obj.data, "is_editmode", False):
+        report["errors"].append("L'objet est en mode Édition. Veuillez repasser en mode Objet (Touche Tab) pour exécuter l'optimisation.")
+        return report
+
     # 1. Diagnostic initial (stats avant traitement)
     t0 = time.perf_counter()
     stats_before = get_mesh_statistics(source_obj)

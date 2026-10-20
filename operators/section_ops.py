@@ -9,6 +9,16 @@ from ..core.dissolve import execute_dissolve
 from ..core.topology import execute_topology
 from ..core.normals import execute_normals
 from ..core.object_data import execute_object_data
+from ..core.simplification import execute_simplification
+
+
+def _check_object_mode(operator: bpy.types.Operator, context: bpy.types.Context) -> bool:
+    """Vérifie que le contexte actuel est bien le mode Objet et signale un avertissement sinon."""
+    obj = context.active_object
+    if context.mode != 'OBJECT' or (obj and obj.mode != 'OBJECT'):
+        operator.report({'WARNING'}, "MeshForge : Cette opération requiert le mode Objet. Veuillez repasser en mode Objet (Touche Tab) pour l'exécuter.")
+        return False
+    return True
 
 
 class MESHFORGE_OT_repair(bpy.types.Operator):
@@ -19,9 +29,17 @@ class MESHFORGE_OT_repair(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        obj = context.active_object
+        return (
+            obj is not None and
+            obj.type == 'MESH' and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def execute(self, context):
+        if not _check_object_mode(self, context):
+            return {'CANCELLED'}
         res = execute_repair(context.active_object, context.scene.meshforge_settings)
         msg = " | ".join(res.get("log", ["Réparation terminée."]))
         self.report({'INFO'}, f"MeshForge Repair : {msg}")
@@ -36,9 +54,17 @@ class MESHFORGE_OT_manifold(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        obj = context.active_object
+        return (
+            obj is not None and
+            obj.type == 'MESH' and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def execute(self, context):
+        if not _check_object_mode(self, context):
+            return {'CANCELLED'}
         res = execute_manifold(context.active_object, context.scene.meshforge_settings)
         msg = " | ".join(res.get("log", ["Opération Manifold terminée."]))
         self.report({'INFO'}, f"MeshForge Manifold : {msg}")
@@ -53,9 +79,17 @@ class MESHFORGE_OT_dissolve(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        obj = context.active_object
+        return (
+            obj is not None and
+            obj.type == 'MESH' and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def execute(self, context):
+        if not _check_object_mode(self, context):
+            return {'CANCELLED'}
         res = execute_dissolve(context.active_object, context.scene.meshforge_settings)
         msg = " | ".join(res.get("log", ["Dissolution terminée."]))
         self.report({'INFO'}, f"MeshForge Dissolve : {msg}")
@@ -70,16 +104,21 @@ class MESHFORGE_OT_topology(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        obj = context.active_object
+        return (
+            obj is not None and
+            obj.type == 'MESH' and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def execute(self, context):
+        if not _check_object_mode(self, context):
+            return {'CANCELLED'}
         res = execute_topology(context.active_object, context.scene.meshforge_settings)
         msg = " | ".join(res.get("log", ["Topologie traitée."]))
         self.report({'INFO'}, f"MeshForge Topology : {msg}")
         return {'FINISHED'}
-
-
-from ..core.simplification import execute_simplification
 
 
 class MESHFORGE_OT_simplification(bpy.types.Operator):
@@ -90,9 +129,17 @@ class MESHFORGE_OT_simplification(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        obj = context.active_object
+        return (
+            obj is not None and
+            obj.type == 'MESH' and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def execute(self, context):
+        if not _check_object_mode(self, context):
+            return {'CANCELLED'}
         res = execute_simplification(context.active_object, context.scene.meshforge_settings)
         if res.get("status") == "ERROR":
             err_msg = " | ".join(res.get("log", ["Erreur lors de la simplification."]))
@@ -111,9 +158,17 @@ class MESHFORGE_OT_normals(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        obj = context.active_object
+        return (
+            obj is not None and
+            obj.type == 'MESH' and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def execute(self, context):
+        if not _check_object_mode(self, context):
+            return {'CANCELLED'}
         res = execute_normals(context.active_object, context.scene.meshforge_settings)
         msg = " | ".join(res.get("log", ["Normales traitées."]))
         self.report({'INFO'}, f"MeshForge Normals : {msg}")
@@ -128,9 +183,17 @@ class MESHFORGE_OT_object_data(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        obj = context.active_object
+        return (
+            obj is not None and
+            obj.type == 'MESH' and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def execute(self, context):
+        if not _check_object_mode(self, context):
+            return {'CANCELLED'}
         res = execute_object_data(context.active_object, context.scene.meshforge_settings)
         msg = " | ".join(res.get("log", ["Données d'objet nettoyées."]))
         self.report({'INFO'}, f"MeshForge Object Data : {msg}")

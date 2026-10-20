@@ -33,9 +33,12 @@ class MeshForgePreferences(bpy.types.AddonPreferences):
         box.prop(self, "result_suffix")
 
 
+from .core.registration_utils import safe_register_class, safe_unregister_class
+
+
 def register_preferences():
-    bpy.utils.register_class(MeshForgePreferences)
+    safe_register_class(MeshForgePreferences)
 
 
 def unregister_preferences():
-    bpy.utils.unregister_class(MeshForgePreferences)
+    safe_unregister_class(MeshForgePreferences)

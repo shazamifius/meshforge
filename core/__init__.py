@@ -13,6 +13,13 @@ from .pipeline import run_meshforge_pipeline, duplicate_object_non_destructive
 from .report import format_report_as_text, export_report_to_file
 from .topology_diagnosis import diagnose_topology
 from .visualizer import select_defect, zoom_to_defect, apply_color_inspection, clear_inspection_view
+from .registration_utils import (
+    is_class_registered,
+    safe_register_class,
+    safe_unregister_class,
+    register_classes_safely,
+    unregister_classes_safely,
+)
 
 __all__ = [
     "get_mesh_statistics",
@@ -34,4 +41,9 @@ __all__ = [
     "zoom_to_defect",
     "apply_color_inspection",
     "clear_inspection_view",
+    "is_class_registered",
+    "safe_register_class",
+    "safe_unregister_class",
+    "register_classes_safely",
+    "unregister_classes_safely",
 ]

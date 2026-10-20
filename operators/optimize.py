@@ -18,7 +18,13 @@ class MESHFORGE_OT_optimize(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        obj = context.active_object
+        return (
+            obj is not None and
+            obj.type == 'MESH' and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def invoke(self, context, event):
         props = context.scene.meshforge_settings
@@ -29,6 +35,10 @@ class MESHFORGE_OT_optimize(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.active_object
+        if context.mode != 'OBJECT' or (obj and obj.mode != 'OBJECT'):
+            self.report({'WARNING'}, "MeshForge : L'optimisation requiert le mode Objet. Veuillez repasser en mode Objet (Touche Tab) pour l'exécuter.")
+            return {'CANCELLED'}
+
         props = context.scene.meshforge_settings
 
         if not obj or obj.type != 'MESH':

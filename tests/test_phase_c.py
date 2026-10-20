@@ -51,6 +51,8 @@ class TestMeshForgePhaseC(unittest.TestCase):
 
     def setUp(self):
         bpy.ops.wm.read_factory_settings(use_empty=True)
+        if not hasattr(bpy.types.Scene, "meshforge_settings"):
+            meshforge.register()
 
     def test_01_percentage_reduction_control(self):
         """1. Vérifie la réduction par pourcentage cible (ex. 50% et 75%)."""

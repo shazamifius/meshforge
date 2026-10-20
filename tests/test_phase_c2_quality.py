@@ -44,6 +44,8 @@ class TestMeshForgePhaseC2Quality(unittest.TestCase):
 
     def setUp(self):
         bpy.ops.wm.read_factory_settings(use_empty=True)
+        if not hasattr(bpy.types.Scene, "meshforge_settings"):
+            meshforge.register()
 
     def test_01_true_silhouette_iou_vs_aabb_defect_injection(self):
         """1. Injection de défaut : Démontre que l'ancien calcul AABB est incapable de détecter

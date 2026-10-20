@@ -44,6 +44,8 @@ class TestMeshForgePhaseA(unittest.TestCase):
     def setUp(self):
         # Nettoyage de la scène entre chaque test
         bpy.ops.wm.read_factory_settings(use_empty=True)
+        if not hasattr(bpy.types.Scene, "meshforge_settings"):
+            meshforge.register()
 
     def test_01_addon_registration(self):
         """1. Vérifie que l'add-on s'installe et s'active sans erreur dans Blender."""

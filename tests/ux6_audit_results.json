@@ -1,0 +1,820 @@
+{
+  "timestamp": "2026-10-20 11:20:58",
+  "blender_version": "5.2.2 LTS",
+  "git_commit": "e56443b",
+  "scenarios": {
+    "01_simple_clean.blend": {
+      "object_name": "CleanCylinder",
+      "profile_chosen": "GENERAL",
+      "diagnosis_duration_ms": 1.17,
+      "health_initial": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 2,
+        "total_findings": 2
+      },
+      "findings_count": 2,
+      "findings_sample": [
+        {
+          "id": "density_general_stats",
+          "name": "Statistiques globales : 44 faces (60 tris)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "uv_present_info",
+          "name": "1 couche(s) UV présente(s) (UVMap)",
+          "severity": "OBSERVATION"
+        }
+      ],
+      "recommended_actions": [],
+      "focus_results": [
+        {
+          "finding_id": "density_general_stats",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "uv_present_info",
+          "status": "{'FINISHED'}"
+        }
+      ],
+      "action_executed": null,
+      "action_duration_ms": 0.0,
+      "health_after": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 2,
+        "total_findings": 2
+      },
+      "inventory_before": {
+        "valid": true,
+        "obj_name": "CleanCylinder",
+        "vertex_count": 32,
+        "edge_count": 74,
+        "polygon_count": 44,
+        "real_triangles": 60,
+        "uv_layers": {
+          "UVMap": 148
+        },
+        "materials": [
+          "Mat_Clean"
+        ],
+        "face_mat_indices_hash": 7612943990257615148,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "inventory_after": {
+        "valid": true,
+        "obj_name": "CleanCylinder",
+        "vertex_count": 32,
+        "edge_count": 74,
+        "polygon_count": 44,
+        "real_triangles": 60,
+        "uv_layers": {
+          "UVMap": 148
+        },
+        "materials": [
+          "Mat_Clean"
+        ],
+        "face_mat_indices_hash": 7612943990257615148,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "undo_verified": true
+    },
+    "02_dense_triangulated.blend": {
+      "object_name": "DenseTriangulatedSphere",
+      "profile_chosen": "GAME_ASSET",
+      "diagnosis_duration_ms": 29.05,
+      "health_initial": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 2,
+        "total_findings": 2
+      },
+      "findings_count": 2,
+      "findings_sample": [
+        {
+          "id": "density_general_stats",
+          "name": "Statistiques globales : 5,120 faces (5,120 tris)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "uv_present_info",
+          "name": "1 couche(s) UV présente(s) (UVMap)",
+          "severity": "OBSERVATION"
+        }
+      ],
+      "recommended_actions": [],
+      "focus_results": [
+        {
+          "finding_id": "density_general_stats",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "uv_present_info",
+          "status": "{'FINISHED'}"
+        }
+      ],
+      "action_executed": null,
+      "action_duration_ms": 0.0,
+      "health_after": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 2,
+        "total_findings": 2
+      },
+      "inventory_before": {
+        "valid": true,
+        "obj_name": "DenseTriangulatedSphere",
+        "vertex_count": 2562,
+        "edge_count": 7680,
+        "polygon_count": 5120,
+        "real_triangles": 5120,
+        "uv_layers": {
+          "UVMap": 15360
+        },
+        "materials": [
+          "Mat_DenseRock"
+        ],
+        "face_mat_indices_hash": -4078270716330310371,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "inventory_after": {
+        "valid": true,
+        "obj_name": "DenseTriangulatedSphere",
+        "vertex_count": 2562,
+        "edge_count": 7680,
+        "polygon_count": 5120,
+        "real_triangles": 5120,
+        "uv_layers": {
+          "UVMap": 15360
+        },
+        "materials": [
+          "Mat_DenseRock"
+        ],
+        "face_mat_indices_hash": -4078270716330310371,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "undo_verified": true
+    },
+    "03_sculpted_organic.blend": {
+      "object_name": "SculptedOrganicModel",
+      "profile_chosen": "SCULPTED_ORGANIC",
+      "diagnosis_duration_ms": 198.21,
+      "health_initial": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 3,
+        "total_findings": 3
+      },
+      "findings_count": 3,
+      "findings_sample": [
+        {
+          "id": "topo_open_boundary",
+          "name": "Frontière ouverte (336 arêtes de bord)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "density_sculpt_info",
+          "name": "Densité de sculpture (62,976 triangles)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "uv_present_info",
+          "name": "1 couche(s) UV présente(s) (UVMap)",
+          "severity": "OBSERVATION"
+        }
+      ],
+      "recommended_actions": [],
+      "focus_results": [
+        {
+          "finding_id": "topo_open_boundary",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "density_sculpt_info",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "uv_present_info",
+          "status": "{'FINISHED'}"
+        }
+      ],
+      "action_executed": null,
+      "action_duration_ms": 0.0,
+      "health_after": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 3,
+        "total_findings": 3
+      },
+      "inventory_before": {
+        "valid": true,
+        "obj_name": "SculptedOrganicModel",
+        "vertex_count": 31658,
+        "edge_count": 63144,
+        "polygon_count": 31488,
+        "real_triangles": 62976,
+        "uv_layers": {
+          "UVMap": 125952
+        },
+        "materials": [
+          "Mat_SkinOrganic"
+        ],
+        "face_mat_indices_hash": 8486131965691825159,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "inventory_after": {
+        "valid": true,
+        "obj_name": "SculptedOrganicModel",
+        "vertex_count": 31658,
+        "edge_count": 63144,
+        "polygon_count": 31488,
+        "real_triangles": 62976,
+        "uv_layers": {
+          "UVMap": 125952
+        },
+        "materials": [
+          "Mat_SkinOrganic"
+        ],
+        "face_mat_indices_hash": 8486131965691825159,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "undo_verified": true
+    },
+    "04_mechanical_assembly.blend": {
+      "object_name": "MechanicalAssembly",
+      "profile_chosen": "MECHANICAL_CAD",
+      "diagnosis_duration_ms": 2.07,
+      "health_initial": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 3,
+        "total_findings": 3
+      },
+      "findings_count": 3,
+      "findings_sample": [
+        {
+          "id": "topo_ngons_convex",
+          "name": "N-gones convexes (4)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "density_general_stats",
+          "name": "Statistiques globales : 40 faces (124 tris)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "uv_present_info",
+          "name": "1 couche(s) UV présente(s) (UVMap)",
+          "severity": "OBSERVATION"
+        }
+      ],
+      "recommended_actions": [],
+      "focus_results": [
+        {
+          "finding_id": "topo_ngons_convex",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "density_general_stats",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "uv_present_info",
+          "status": "{'FINISHED'}"
+        }
+      ],
+      "action_executed": null,
+      "action_duration_ms": 0.0,
+      "health_after": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 3,
+        "total_findings": 3
+      },
+      "inventory_before": {
+        "valid": true,
+        "obj_name": "MechanicalAssembly",
+        "vertex_count": 68,
+        "edge_count": 102,
+        "polygon_count": 40,
+        "real_triangles": 124,
+        "uv_layers": {
+          "UVMap": 204
+        },
+        "materials": [
+          "Mat_SteelCAD"
+        ],
+        "face_mat_indices_hash": -5475657470357154422,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "inventory_after": {
+        "valid": true,
+        "obj_name": "MechanicalAssembly",
+        "vertex_count": 68,
+        "edge_count": 102,
+        "polygon_count": 40,
+        "real_triangles": 124,
+        "uv_layers": {
+          "UVMap": 204
+        },
+        "materials": [
+          "Mat_SteelCAD"
+        ],
+        "face_mat_indices_hash": -5475657470357154422,
+        "vertex_groups": {},
+        "color_attributes": [
+          "_MF_Inspection_Temp"
+        ],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "undo_verified": true
+    },
+    "05_open_surface_cloth.blend": {
+      "object_name": "OpenClothSurface",
+      "profile_chosen": "GENERAL",
+      "diagnosis_duration_ms": 2.48,
+      "health_initial": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 3,
+        "total_findings": 3
+      },
+      "findings_count": 3,
+      "findings_sample": [
+        {
+          "id": "topo_open_boundary",
+          "name": "Frontière ouverte (80 arêtes de bord)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "density_general_stats",
+          "name": "Statistiques globales : 400 faces (800 tris)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "uv_present_info",
+          "name": "1 couche(s) UV présente(s) (UVMap)",
+          "severity": "OBSERVATION"
+        }
+      ],
+      "recommended_actions": [],
+      "focus_results": [
+        {
+          "finding_id": "topo_open_boundary",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "density_general_stats",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "uv_present_info",
+          "status": "{'FINISHED'}"
+        }
+      ],
+      "action_executed": null,
+      "action_duration_ms": 0.0,
+      "health_after": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 3,
+        "total_findings": 3
+      },
+      "inventory_before": {
+        "valid": true,
+        "obj_name": "OpenClothSurface",
+        "vertex_count": 441,
+        "edge_count": 840,
+        "polygon_count": 400,
+        "real_triangles": 800,
+        "uv_layers": {
+          "UVMap": 1600
+        },
+        "materials": [
+          "Mat_SilkCloth"
+        ],
+        "face_mat_indices_hash": 8223521203277576146,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "inventory_after": {
+        "valid": true,
+        "obj_name": "OpenClothSurface",
+        "vertex_count": 441,
+        "edge_count": 840,
+        "polygon_count": 400,
+        "real_triangles": 800,
+        "uv_layers": {
+          "UVMap": 1600
+        },
+        "materials": [
+          "Mat_SilkCloth"
+        ],
+        "face_mat_indices_hash": 8223521203277576146,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "undo_verified": true
+    },
+    "06_multi_uv_materials.blend": {
+      "object_name": "MultiUvMaterialAsset",
+      "profile_chosen": "GAME_ASSET",
+      "diagnosis_duration_ms": 0.67,
+      "health_initial": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 2,
+        "total_findings": 2
+      },
+      "findings_count": 2,
+      "findings_sample": [
+        {
+          "id": "density_general_stats",
+          "name": "Statistiques globales : 6 faces (12 tris)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "uv_present_info",
+          "name": "3 couche(s) UV présente(s) (UVMap, UVMap_BaseColor, UVMap_Lightmap)",
+          "severity": "OBSERVATION"
+        }
+      ],
+      "recommended_actions": [],
+      "focus_results": [
+        {
+          "finding_id": "density_general_stats",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "uv_present_info",
+          "status": "{'FINISHED'}"
+        }
+      ],
+      "action_executed": null,
+      "action_duration_ms": 0.0,
+      "health_after": {
+        "status": "HEALTHY",
+        "defects_count": 0,
+        "risks_count": 0,
+        "observations_count": 2,
+        "total_findings": 2
+      },
+      "inventory_before": {
+        "valid": true,
+        "obj_name": "MultiUvMaterialAsset",
+        "vertex_count": 8,
+        "edge_count": 12,
+        "polygon_count": 6,
+        "real_triangles": 12,
+        "uv_layers": {
+          "UVMap": 24,
+          "UVMap_BaseColor": 24,
+          "UVMap_Lightmap": 24
+        },
+        "materials": [
+          "Mat_Wood",
+          "Mat_Metal",
+          "Mat_Glass"
+        ],
+        "face_mat_indices_hash": -5917882654512993798,
+        "vertex_groups": {},
+        "color_attributes": [
+          "AO_VertexColors"
+        ],
+        "seams_count": 2,
+        "sharp_count": 0
+      },
+      "inventory_after": {
+        "valid": true,
+        "obj_name": "MultiUvMaterialAsset",
+        "vertex_count": 8,
+        "edge_count": 12,
+        "polygon_count": 6,
+        "real_triangles": 12,
+        "uv_layers": {
+          "UVMap": 24,
+          "UVMap_BaseColor": 24,
+          "UVMap_Lightmap": 24
+        },
+        "materials": [
+          "Mat_Wood",
+          "Mat_Metal",
+          "Mat_Glass"
+        ],
+        "face_mat_indices_hash": -5917882654512993798,
+        "vertex_groups": {},
+        "color_attributes": [
+          "AO_VertexColors"
+        ],
+        "seams_count": 2,
+        "sharp_count": 0
+      },
+      "undo_verified": true
+    },
+    "07_deformable_character.blend": {
+      "object_name": "DeformableCharacterHead",
+      "profile_chosen": "DEFORMABLE_CHAR",
+      "diagnosis_duration_ms": 3.99,
+      "health_initial": {
+        "status": "WARNING",
+        "defects_count": 0,
+        "risks_count": 2,
+        "observations_count": 3,
+        "total_findings": 5
+      },
+      "findings_count": 5,
+      "findings_sample": [
+        {
+          "id": "topo_open_boundary",
+          "name": "Frontière ouverte (42 arêtes de bord)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "deform_tris_in_quads",
+          "name": "Triangles dans un maillage quad (32)",
+          "severity": "RISK"
+        },
+        {
+          "id": "deform_high_valence_poles",
+          "name": "Pôles complexes valence >= 6 (9)",
+          "severity": "RISK"
+        },
+        {
+          "id": "density_general_stats",
+          "name": "Statistiques globales : 500 faces (968 tris)",
+          "severity": "OBSERVATION"
+        },
+        {
+          "id": "uv_present_info",
+          "name": "1 couche(s) UV présente(s) (UVMap)",
+          "severity": "OBSERVATION"
+        }
+      ],
+      "recommended_actions": [],
+      "focus_results": [
+        {
+          "finding_id": "topo_open_boundary",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "deform_tris_in_quads",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "deform_high_valence_poles",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "density_general_stats",
+          "status": "{'FINISHED'}"
+        }
+      ],
+      "action_executed": null,
+      "action_duration_ms": 0.0,
+      "health_after": {
+        "status": "WARNING",
+        "defects_count": 0,
+        "risks_count": 2,
+        "observations_count": 3,
+        "total_findings": 5
+      },
+      "inventory_before": {
+        "valid": true,
+        "obj_name": "DeformableCharacterHead",
+        "vertex_count": 507,
+        "edge_count": 1005,
+        "polygon_count": 500,
+        "real_triangles": 968,
+        "uv_layers": {
+          "UVMap": 1968
+        },
+        "materials": [
+          "Mat_ToonSkin"
+        ],
+        "face_mat_indices_hash": -843738176128954363,
+        "vertex_groups": {
+          "DEF_Head": 401,
+          "DEF_Jaw": 106,
+          "DEF_Neck": 278,
+          "DEF_Ear.L": 91
+        },
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "inventory_after": {
+        "valid": true,
+        "obj_name": "DeformableCharacterHead",
+        "vertex_count": 507,
+        "edge_count": 1005,
+        "polygon_count": 500,
+        "real_triangles": 968,
+        "uv_layers": {
+          "UVMap": 1968
+        },
+        "materials": [
+          "Mat_ToonSkin"
+        ],
+        "face_mat_indices_hash": -843738176128954363,
+        "vertex_groups": {
+          "DEF_Head": 401,
+          "DEF_Jaw": 106,
+          "DEF_Neck": 278,
+          "DEF_Ear.L": 91
+        },
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 0
+      },
+      "undo_verified": true
+    },
+    "08_defects_and_edge_cases.blend": {
+      "object_name": "DefectAndEdgeCaseAsset",
+      "profile_chosen": "GAME_ASSET",
+      "diagnosis_duration_ms": 1.19,
+      "health_initial": {
+        "status": "CRITICAL",
+        "defects_count": 6,
+        "risks_count": 0,
+        "observations_count": 2,
+        "total_findings": 8
+      },
+      "findings_count": 8,
+      "findings_sample": [
+        {
+          "id": "geom_zero_area_faces",
+          "name": "Faces d'aire nulle (1)",
+          "severity": "DEFECT"
+        },
+        {
+          "id": "geom_loose_verts",
+          "name": "Sommets orphelins (3)",
+          "severity": "DEFECT"
+        },
+        {
+          "id": "topo_wire_edges",
+          "name": "Arêtes filaires sans face (1)",
+          "severity": "DEFECT"
+        },
+        {
+          "id": "topo_non_manifold",
+          "name": "Arêtes non-manifold (1)",
+          "severity": "DEFECT"
+        },
+        {
+          "id": "topo_open_boundary",
+          "name": "Frontière ouverte (10 arêtes de bord)",
+          "severity": "OBSERVATION"
+        }
+      ],
+      "recommended_actions": [
+        {
+          "id": "conservative_clean",
+          "label": "Nettoyage conservateur sûr",
+          "risk": "[Risque Faible]"
+        },
+        {
+          "id": "cut_ngons",
+          "label": "Découper les N-gones (1)",
+          "risk": "[Risque Contrôlé]"
+        }
+      ],
+      "focus_results": [
+        {
+          "finding_id": "geom_zero_area_faces",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "geom_loose_verts",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "topo_wire_edges",
+          "status": "{'FINISHED'}"
+        },
+        {
+          "finding_id": "topo_non_manifold",
+          "status": "{'FINISHED'}"
+        }
+      ],
+      "action_executed": "conservative_clean",
+      "action_duration_ms": 1.03,
+      "health_after": {
+        "status": "CRITICAL",
+        "defects_count": 2,
+        "risks_count": 0,
+        "observations_count": 2,
+        "total_findings": 4
+      },
+      "inventory_before": {
+        "valid": true,
+        "obj_name": "DefectAndEdgeCaseAsset",
+        "vertex_count": 15,
+        "edge_count": 12,
+        "polygon_count": 3,
+        "real_triangles": 6,
+        "uv_layers": {},
+        "materials": [
+          "Mat_Debug"
+        ],
+        "face_mat_indices_hash": 3010437511937009226,
+        "vertex_groups": {},
+        "color_attributes": [],
+        "seams_count": 0,
+        "sharp_count": 1
+      },
+      "inventory_after": {
+        "valid": true,
+        "obj_name": "DefectAndEdgeCaseAsset",
+        "vertex_count": 7,
+        "edge_count": 8,
+        "polygon_count": 2,
+        "real_triangles": 5,
+        "uv_layers": {},
+        "materials": [
+          "Mat_Debug"
+        ],
+        "face_mat_indices_hash": -8458139203682520985,
+        "vertex_groups": {},
+        "color_attributes": [
+          "_MF_Inspection_Temp"
+        ],
+        "seams_count": 0,
+        "sharp_count": 1
+      },
+      "undo_verified": true
+    }
+  },
+  "simplification_black_streaks_audit": {
+    "original_vertices": 31658,
+    "original_faces": 31488,
+    "decimated_vertices": 15900,
+    "decimated_faces": 20265,
+    "needle_triangles_count": 55,
+    "needle_max_aspect_ratio": 23.43,
+    "sharp_normal_folds_count": 0,
+    "render_original": "C:\\Users\\Administrator\\Documents\\meshforge\\docs\\images\\sculpt_shading_original.png",
+    "render_decimated": "C:\\Users\\Administrator\\Documents\\meshforge\\docs\\images\\sculpt_shading_decimated_streaks.png",
+    "technical_diagnosis": "La décimation par collapse non contraint produit des triangles aiguilles au ratio > 8:1 et des arêtes à forte discontinuité dièdre (dot normal < -0.2). Ces arêtes créent une rupture de l'interpolation des normales lissées (Smooth Shading), provoquant l'artefact noir du Normal Terminator sur les zones courbées."
+  },
+  "edge_cases_and_errors": {
+    "no_selection": {
+      "analyze_poll": false,
+      "clean_poll": false,
+      "cut_poll": false,
+      "expected": "Boutons grisés (poll False)",
+      "status": "CONFORME"
+    },
+    "non_mesh_camera": {
+      "analyze_poll": false,
+      "clean_poll": false,
+      "cut_poll": false,
+      "expected": "Boutons grisés (poll False)",
+      "status": "CONFORME"
+    },
+    "edit_mode_execution": {
+      "mode": "EDIT",
+      "result": "ERROR",
+      "traceback": "Error: MeshForge : Nettoyage refusé et annulé : to_mesh(): Mesh 'Suzanne' is in editmode. Le maillage a été restauré sans aucune perte.\n",
+      "finding": "L'opérateur exige le mode Objet pour appliquer to_mesh(), mais son poll autorise le mode EDIT. Une bascule automatique ou une restriction de poll est nécessaire."
+    }
+  },
+  "operator_inventory": {}
+}

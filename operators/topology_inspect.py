@@ -27,10 +27,20 @@ class MESHFORGE_OT_analyze_topology(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+        obj = context.active_object
+        return (
+            obj is not None and
+            obj.type == 'MESH' and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def execute(self, context):
         obj = context.active_object
+        if context.mode != 'OBJECT' or (obj and obj.mode != 'OBJECT'):
+            self.report({'WARNING'}, "MeshForge : L'analyse topologique requiert le mode Objet. Veuillez repasser en mode Objet (Touche Tab) pour l'exécuter.")
+            return {'CANCELLED'}
+
         props = context.scene.meshforge_settings
         mode = props.asset_target_mode
 
@@ -72,7 +82,10 @@ class MESHFORGE_OT_focus_defect(bpy.types.Operator):
         diag = _ACTIVE_DIAGNOSIS_CACHE.get(obj.name)
 
         if not diag:
-            # Si aucun diagnostic en cache, exécuter le diagnostic d'abord
+            # Si aucun diagnostic en cache, exécuter le diagnostic d'abord (en mode Objet uniquement)
+            if context.mode != 'OBJECT' or (obj and obj.mode != 'OBJECT'):
+                self.report({'WARNING'}, "MeshForge : Aucune analyse en cache. Veuillez repasser en mode Objet (Touche Tab) pour lancer l'analyse préalable.")
+                return {'CANCELLED'}
             props = context.scene.meshforge_settings
             diag = diagnose_topology(obj, mode=props.asset_target_mode)
             _ACTIVE_DIAGNOSIS_CACHE[obj.name] = diag

@@ -13,10 +13,19 @@ class MESHFORGE_OT_restore(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.active_object
-        return obj is not None and "_MF_Optimized" in obj.name
+        return (
+            obj is not None and
+            "_MF_Optimized" in obj.name and
+            context.mode == 'OBJECT' and
+            obj.mode == 'OBJECT'
+        )
 
     def execute(self, context):
         current_obj = context.active_object
+        if context.mode != 'OBJECT' or (current_obj and current_obj.mode != 'OBJECT'):
+            self.report({'WARNING'}, "MeshForge : La restauration requiert le mode Objet. Veuillez repasser en mode Objet (Touche Tab).")
+            return {'CANCELLED'}
+
         orig_name = current_obj.name.replace("_MF_Optimized", "")
 
         # Retrouver l'objet original

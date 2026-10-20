@@ -46,6 +46,8 @@ class TestMeshForgePhaseB(unittest.TestCase):
 
     def setUp(self):
         bpy.ops.wm.read_factory_settings(use_empty=True)
+        if not hasattr(bpy.types.Scene, "meshforge_settings"):
+            meshforge.register()
 
     def test_01_open_geometry_cloth_like(self):
         """1. Vérifie le diagnostic et le respect strict d'une surface ouverte (type tissu/plan)."""

@@ -45,11 +45,12 @@ classes = (
 )
 
 
+from ..core.registration_utils import register_classes_safely, unregister_classes_safely
+
+
 def register_operators():
-    for cls in classes:
-        bpy.utils.register_class(cls)
+    register_classes_safely(classes)
 
 
 def unregister_operators():
-    for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+    unregister_classes_safely(classes)

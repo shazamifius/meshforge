@@ -49,14 +49,32 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
             row_title.label(text="[Optimisé]", icon='CHECKMARK')
 
         # Comptage immédiat exact sans bmesh lourd
-        mesh.calc_loop_triangles()
-        real_tris = len(mesh.loop_triangles) if hasattr(mesh, "loop_triangles") else sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
+        is_edit = (context.mode == 'EDIT_MESH' or (obj and obj.mode == 'EDIT'))
+        if not is_edit:
+            try:
+                mesh.calc_loop_triangles()
+                real_tris = len(mesh.loop_triangles) if hasattr(mesh, "loop_triangles") else sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
+            except Exception:
+                real_tris = sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
+        else:
+            real_tris = sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
 
         grid = box_obj.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
         grid.label(text=f"Sommets : {len(mesh.vertices):,}")
         grid.label(text=f"Arêtes : {len(mesh.edges):,}")
         grid.label(text=f"Faces : {len(mesh.polygons):,}")
         grid.label(text=f"Triangles réels : {real_tris:,}")
+
+        # Alerte explicite si le mode Édition est actif
+        if is_edit:
+            box_edit = layout.box()
+            box_edit.alert = True
+            row_we = box_edit.row(align=True)
+            row_we.label(text="Mode Édition actif : actions désactivées", icon='EDITMODE_HLT')
+            col_we = box_edit.column(align=True)
+            col_we.scale_y = 0.85
+            col_we.label(text="Repassez en mode Objet (Touche Tab) pour lancer")
+            col_we.label(text="l'analyse et les réparations géométriques sûres.")
 
         # Bouton Restaurer si objet optimisé actif
         if "_MF_Optimized" in obj.name:
@@ -678,11 +696,12 @@ classes = (
 )
 
 
+from ..core.registration_utils import register_classes_safely, unregister_classes_safely
+
+
 def register_ui():
-    for cls in classes:
-        bpy.utils.register_class(cls)
+    register_classes_safely(classes)
 
 
 def unregister_ui():
-    for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+    unregister_classes_safely(classes)

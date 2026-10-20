@@ -48,6 +48,8 @@ class TestMeshForgePhaseD1Diagnosis(unittest.TestCase):
 
     def setUp(self):
         bpy.ops.wm.read_factory_settings(use_empty=True)
+        if not hasattr(bpy.types.Scene, "meshforge_settings"):
+            meshforge.register()
 
     def test_01_strictly_read_only_analysis(self):
         """1. Vérifie que le diagnostic n'altère absolument pas la géométrie (sommets, arêtes, faces, coordonnées)."""

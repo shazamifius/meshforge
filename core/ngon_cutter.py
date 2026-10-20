@@ -206,6 +206,10 @@ def execute_ngon_cut(
         result["error"] = "Objet sélectionné invalide ou sans maillage."
         return result
 
+    if obj.mode != 'OBJECT' or getattr(obj.data, "is_editmode", False):
+        result["error"] = "L'objet est en mode Édition. Veuillez repasser en mode Objet (Touche Tab) pour exécuter la découpe sans risquer de corrompre les données non validées."
+        return result
+
     mesh = obj.data
 
     # 1. Snapshot mémoire intégral

@@ -51,6 +51,8 @@ class MeshSnapshot:
         """Restaure intégralement le maillage dans son état exact pré-opération."""
         if not self.backup_mesh:
             return False
+        if getattr(mesh, "is_editmode", False):
+            return False
         try:
             bm = bmesh.new()
             bm.from_mesh(self.backup_mesh)
@@ -295,6 +297,10 @@ def execute_conservative_cleanup(
 
     if not obj or obj.type != 'MESH' or not obj.data:
         result["error"] = "Objet sélectionné invalide ou sans maillage."
+        return result
+
+    if obj.mode != 'OBJECT' or getattr(obj.data, "is_editmode", False):
+        result["error"] = "L'objet est en mode Édition. Veuillez repasser en mode Objet (Touche Tab) pour exécuter le nettoyage sans risquer de corrompre les données non validées."
         return result
 
     mesh = obj.data

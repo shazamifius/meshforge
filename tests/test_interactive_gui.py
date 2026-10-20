@@ -48,6 +48,8 @@ class TestMeshForgePhaseD1Interactive(unittest.TestCase):
 
     def setUp(self):
         bpy.ops.wm.read_factory_settings(use_empty=True)
+        if not hasattr(bpy.types.Scene, "meshforge_settings"):
+            meshforge.register()
 
     def _create_multi_defect_asset(self) -> bpy.types.Object:
         """Crée un asset de test réunissant les 4 familles de défauts :

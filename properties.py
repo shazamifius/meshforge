@@ -541,11 +541,16 @@ class MeshForgeSettings(bpy.types.PropertyGroup):
 
 
 def register_properties():
-    bpy.utils.register_class(MeshForgeSettings)
+    from .core.registration_utils import safe_register_class
+    safe_register_class(MeshForgeSettings)
     bpy.types.Scene.meshforge_settings = PointerProperty(type=MeshForgeSettings)
 
 
 def unregister_properties():
+    from .core.registration_utils import safe_unregister_class
     if hasattr(bpy.types.Scene, "meshforge_settings"):
-        del bpy.types.Scene.meshforge_settings
-    bpy.utils.unregister_class(MeshForgeSettings)
+        try:
+            del bpy.types.Scene.meshforge_settings
+        except (AttributeError, RuntimeError):
+            pass
+    safe_unregister_class(MeshForgeSettings)

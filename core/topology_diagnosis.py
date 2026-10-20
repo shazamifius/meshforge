@@ -75,6 +75,9 @@ def diagnose_topology(
     if not obj or obj.type != 'MESH' or not obj.data:
         return {"valid": False, "error": "Objet sélectionné invalide."}
 
+    if obj.mode != 'OBJECT' or getattr(obj.data, "is_editmode", False):
+        return {"valid": False, "error": "L'objet est en mode Édition. Veuillez repasser en mode Objet (Touche Tab) pour exécuter l'analyse."}
+
     mesh = obj.data
     mesh.calc_loop_triangles()
     real_triangles = len(mesh.loop_triangles) if hasattr(mesh, "loop_triangles") else sum(max(0, len(p.vertices) - 2) for p in mesh.polygons)
