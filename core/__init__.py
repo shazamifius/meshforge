@@ -18,6 +18,11 @@ from .quadrangulator import (
     check_triangle_pair_compatibility,
     execute_targeted_quadrangulation,
 )
+from .internal_walls import (
+    classify_non_manifold_faces,
+    detect_internal_walls,
+    execute_remove_internal_walls,
+)
 from .registration_utils import (
     is_class_registered,
     safe_register_class,
@@ -49,6 +54,9 @@ __all__ = [
     "quad_orthogonality_score",
     "check_triangle_pair_compatibility",
     "execute_targeted_quadrangulation",
+    "classify_non_manifold_faces",
+    "detect_internal_walls",
+    "execute_remove_internal_walls",
     "is_class_registered",
     "safe_register_class",
     "safe_unregister_class",

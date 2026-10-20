@@ -24,6 +24,10 @@ from .topology_inspect import (
 from .conservative_clean_op import MESHFORGE_OT_conservative_clean
 from .ngon_cut_op import MESHFORGE_OT_cut_ngons
 from .quadrangulate_op import MESHFORGE_OT_quadrangulate
+from .internal_walls_op import (
+    MESHFORGE_OT_select_internal_walls,
+    MESHFORGE_OT_remove_internal_walls,
+)
 
 classes = (
     MESHFORGE_OT_optimize,
@@ -34,6 +38,8 @@ classes = (
     MESHFORGE_OT_conservative_clean,
     MESHFORGE_OT_cut_ngons,
     MESHFORGE_OT_quadrangulate,
+    MESHFORGE_OT_select_internal_walls,
+    MESHFORGE_OT_remove_internal_walls,
     MESHFORGE_OT_repair,
     MESHFORGE_OT_manifold,
     MESHFORGE_OT_dissolve,

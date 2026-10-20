@@ -261,6 +261,27 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                 c_info3.label(text="• Préserve strictement les coutures UV, arêtes vives et matériaux.")
                 c_info3.label(text="• Rollback automatique en cas de déviation géométrique.")
 
+            # Action 4: Suppression des parois internes mitoyennes (D2.4)
+            has_internal_walls = facts.get("internal_walls_count", 0) > 0
+            if has_internal_walls and shown_actions < 3:
+                shown_actions += 1
+                b_act4 = box_acts.box()
+                r4 = b_act4.row()
+                r4.label(text="Parois internes mitoyennes", icon='X')
+                r4.label(text="[Risque Contrôlé]", icon='INFO')
+
+                col_b4 = b_act4.column(align=True)
+                col_b4.scale_y = 1.2
+                row_iw_btns = col_b4.row(align=True)
+                row_iw_btns.operator("meshforge.select_internal_walls", text="Inspecter (Zoom)", icon='VIEWZOOM')
+                row_iw_btns.operator("meshforge.remove_internal_walls", text=f"Supprimer ({facts.get('internal_walls_count', 0)})", icon='X')
+
+                c_info4 = b_act4.column(align=True)
+                c_info4.scale_y = 0.75
+                c_info4.label(text="• Supprime les faces occluses reliant deux cellules fermées.")
+                c_info4.label(text="• Rétablit l'étanchéité manifold sans ouvrir de trou.")
+                c_info4.label(text="• Confirmation explicite requise avant suppression.")
+
             if shown_actions == 0:
                 b_ok = box_acts.box()
                 b_ok.label(text="Aucune action corrective urgente requise.", icon='CHECKMARK')
@@ -489,8 +510,14 @@ class VIEW3D_PT_meshforge_manifold(VIEW3D_PT_meshforge_base, bpy.types.Panel):
         if props.flatten_faces:
             col_flat.prop(props, "flatten_iterations")
 
+        box_safe_iw = layout.box()
+        box_safe_iw.label(text="Parois internes mitoyennes (Sûr) :", icon='CHECKMARK')
+        row_iw = box_safe_iw.row(align=True)
+        row_iw.operator("meshforge.select_internal_walls", text="Inspecter (Zoom)", icon='VIEWZOOM')
+        row_iw.operator("meshforge.remove_internal_walls", text="Supprimer", icon='X')
+
         layout.separator()
-        layout.operator("meshforge.manifold", text="Exécuter Manifold", icon='MOD_SOLIDIFY')
+        layout.operator("meshforge.manifold", text="Exécuter Manifold complet", icon='MOD_SOLIDIFY')
 
 
 class VIEW3D_PT_meshforge_dissolve(VIEW3D_PT_meshforge_base, bpy.types.Panel):

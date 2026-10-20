@@ -297,6 +297,22 @@ def measure_mesh_facts(obj: bpy.types.Object) -> Dict[str, Any]:
     non_manifold_edges = [e for e in bm.edges if not e.is_manifold and not e.is_boundary]
     micro_edges = [e for e in bm.edges if e.calc_length() <= micro_edge_threshold and not e.is_boundary]
 
+    # 2.b Analyse des parois internes et jonctions en T (D2.4)
+    strict_internal_faces = []
+    t_junction_faces = []
+    complex_junction_faces = []
+    strict_wall_center = (0.0, 0.0, 0.0)
+    if non_manifold_edges:
+        try:
+            from .internal_walls import classify_non_manifold_faces
+            wall_diag = classify_non_manifold_faces(bm)
+            strict_internal_faces = wall_diag.get("strict_internal_faces", [])
+            t_junction_faces = wall_diag.get("t_junction_faces", [])
+            complex_junction_faces = wall_diag.get("complex_junction_faces", [])
+            strict_wall_center = wall_diag.get("strict_wall_center", (0.0, 0.0, 0.0))
+        except Exception:
+            pass
+
     # 3. Analyse des sommets
     loose_verts = [v for v in bm.verts if not v.link_edges]
     poles_valence_3 = []
@@ -378,6 +394,12 @@ def measure_mesh_facts(obj: bpy.types.Object) -> Dict[str, Any]:
         "non_manifold_edges_count": len(non_manifold_edges),
         "non_manifold_edge_indices": [e.index for e in non_manifold_edges[:50]],
         "non_manifold_edge_center": tuple((non_manifold_edges[0].verts[0].co + non_manifold_edges[0].verts[1].co) * 0.5) if non_manifold_edges else (0, 0, 0),
+        "internal_walls_count": len(strict_internal_faces),
+        "internal_wall_indices": strict_internal_faces,
+        "internal_wall_center": strict_wall_center,
+        "t_junctions_count": len(t_junction_faces),
+        "t_junction_indices": t_junction_faces,
+        "complex_junctions_count": len(complex_junction_faces),
         "micro_edges_count": len(micro_edges),
         "micro_edge_indices": [e.index for e in micro_edges[:50]],
         "micro_edge_center": tuple((micro_edges[0].verts[0].co + micro_edges[0].verts[1].co) * 0.5) if micro_edges else (0, 0, 0),
@@ -545,8 +567,41 @@ def evaluate_structured_diagnosis(
             action_risk="Risque Faible"
         ))
 
-    # 2.2 Arêtes non-manifold (hors frontières ouvertes)
-    if facts["non_manifold_edges_count"] > 0:
+    # 2.2 Parois internes mitoyennes et jonctions en T (D2.4)
+    if facts.get("internal_walls_count", 0) > 0:
+        findings.append(DiagnosticFinding(
+            finding_id="topo_internal_walls",
+            category="TOPOLOGY",
+            name=f"Parois internes mitoyennes ({facts['internal_walls_count']} faces)",
+            severity="DEFECT" if resolved_profile in ("GAME_ASSET", "MECHANICAL_CAD") else "RISK",
+            count=facts["internal_walls_count"],
+            element_type="FACE",
+            indices=facts["internal_wall_indices"],
+            center=facts.get("internal_wall_center"),
+            explanation=f"{facts['internal_walls_count']} face(s) mitoyenne(s) occluses séparant des cellules fermées. Leur suppression guérit la non-manifoldité sans ouvrir de trou.",
+            consequence="Rend l'objet non-étanche, interdit l'impression 3D, gaspille du budget polygonal et perturbe le baking.",
+            recommendation="Supprimer les parois internes après confirmation.",
+            compatible_action="meshforge.remove_internal_walls",
+            action_name="Supprimer les parois internes",
+            action_risk="Risque Contrôlé"
+        ))
+
+    if facts.get("t_junctions_count", 0) > 0:
+        findings.append(DiagnosticFinding(
+            finding_id="topo_t_junctions",
+            category="TOPOLOGY",
+            name=f"Jonctions de surface / Ailerons ({facts['t_junctions_count']} faces)",
+            severity="RISK" if resolved_profile == "MECHANICAL_CAD" else "OBSERVATION",
+            count=facts["t_junctions_count"],
+            element_type="FACE",
+            indices=facts["t_junction_indices"],
+            explanation="Surfaces rattachées formant une jonction en T (ex: aileron ou cloison ouverte). Surface potentiellement intentionnelle : aucune suppression automatique.",
+            consequence="Arête partagée par 3 faces. Non-étanche pour l'impression 3D, mais peut être normale sur un décor ou un vêtement.",
+            recommendation="Conserver si l'aileron est voulu, ou séparer les surfaces en mode Édition."
+        ))
+
+    # 2.2b Arêtes non-manifold résiduelles
+    if facts["non_manifold_edges_count"] > 0 and facts.get("internal_walls_count", 0) == 0:
         findings.append(DiagnosticFinding(
             finding_id="topo_non_manifold",
             category="TOPOLOGY",
@@ -556,9 +611,9 @@ def evaluate_structured_diagnosis(
             element_type="EDGE",
             indices=facts["non_manifold_edge_indices"],
             center=facts["non_manifold_edge_center"],
-            explanation="Arêtes partagées par plus de 2 faces (paroi intérieure ou jonction en T).",
+            explanation="Arêtes partagées par plus de 2 faces (jonction en T ou intersection complexe).",
             consequence="Rend l'objet non-étanche (non-watertight), interdit l'impression 3D et perturbe le baking.",
-            recommendation="Supprimer les faces intérieures en mode Édition ou scinder les surfaces."
+            recommendation="Inspecter en mode Édition ou scinder les surfaces."
         ))
 
     # 2.3 Frontières ouvertes (Mesh ouvert / Tissu)
@@ -868,6 +923,20 @@ def evaluate_structured_diagnosis(
             "justification": f"Fusionne les paires de triangles coplanaires ({facts['tris_count']} triangles détectés) en quads réguliers.",
             "data_impact": "Préserve strictement les coutures UV, arêtes vives, matériaux et l'aire du maillage.",
             "safety_note": "Transaction réversible : rollback automatique en cas de déviation géométrique."
+        })
+
+    # Action 4 : Suppression des parois internes mitoyennes (D2.4)
+    if facts.get("internal_walls_count", 0) > 0 and len(recommended_actions) < 3:
+        recommended_actions.append({
+            "id": "remove_internal_walls",
+            "operator": "meshforge.remove_internal_walls",
+            "label": f"Supprimer les parois internes ({facts['internal_walls_count']} faces)",
+            "icon": 'X',
+            "risk_badge": "[Risque Contrôlé]",
+            "risk_level": "CONTROLLED",
+            "justification": f"Élimine {facts['internal_walls_count']} face(s) mitoyenne(s) occluses pour restaurer un volume fermé manifold.",
+            "data_impact": "Supprime les faces intérieures sans ouvrir de trou dans la coque externe.",
+            "safety_note": "Confirmation explicite requise. Rollback automatique si déviation."
         })
 
     # Compteurs par sévérité
