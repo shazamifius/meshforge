@@ -19,7 +19,8 @@ from .report_export import MESHFORGE_OT_export_report
 from .topology_inspect import (
     MESHFORGE_OT_analyze_topology,
     MESHFORGE_OT_focus_defect,
-    MESHFORGE_OT_clear_defect_view
+    MESHFORGE_OT_clear_defect_view,
+    MESHFORGE_OT_mark_intentional
 )
 from .conservative_clean_op import MESHFORGE_OT_conservative_clean
 from .ngon_cut_op import MESHFORGE_OT_cut_ngons
@@ -35,6 +36,7 @@ classes = (
     MESHFORGE_OT_analyze_topology,
     MESHFORGE_OT_focus_defect,
     MESHFORGE_OT_clear_defect_view,
+    MESHFORGE_OT_mark_intentional,
     MESHFORGE_OT_conservative_clean,
     MESHFORGE_OT_cut_ngons,
     MESHFORGE_OT_quadrangulate,

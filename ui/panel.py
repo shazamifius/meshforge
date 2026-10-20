@@ -201,7 +201,10 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                         b_find = box_table.box()
                         r_f_top = b_find.row(align=True)
 
-                        if f_sev == 'DEFECT':
+                        f_is_intentional = f.get("is_intentional", False)
+                        if f_is_intentional:
+                            r_f_top.label(text="[INTENTIONNEL]", icon='CHECKMARK')
+                        elif f_sev == 'DEFECT':
                             r_f_top.alert = True
                             r_f_top.label(text="[DÉFAUT]", icon='CANCEL')
                         elif f_sev == 'RISK':
@@ -215,6 +218,15 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                             op_z = r_f_top.operator("meshforge.focus_defect", text="Zoomer", icon='ZOOM_SELECTED')
                             op_z.finding_id = f_id
 
+                        if f_is_intentional:
+                            op_unm = r_f_top.operator("meshforge.mark_intentional", text="Rétablir", icon='CANCEL')
+                            op_unm.finding_id = f_id
+                            op_unm.unmark = True
+                        elif f_sev in ('DEFECT', 'RISK'):
+                            op_m = r_f_top.operator("meshforge.mark_intentional", text="Intentionnel", icon='CHECKMARK')
+                            op_m.finding_id = f_id
+                            op_m.unmark = False
+
                         c_f_det = b_find.column(align=True)
                         c_f_det.scale_y = 0.75
                         if f_exp:
@@ -223,6 +235,12 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                             c_f_det.label(text=f"Impact : {f_conseq}")
                         if f_rec:
                             c_f_det.label(text=f"Conseil : {f_rec}")
+
+                        f_manual = f.get("manual_correction_steps", [])
+                        if f_manual:
+                            c_f_det.label(text="Étapes manuelles conseillées :", icon='EDITMODE_HLT')
+                            for step in f_manual:
+                                c_f_det.label(text=f"  › {step}")
 
                     if len(filtered_findings) > 8:
                         box_table.label(text=f"... et {len(filtered_findings) - 8} autre(s) constat(s).")
@@ -337,11 +355,22 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                         c_inf.label(text=f"• Précision : {card['data_impact']}")
                         c_inf.label(text=f"• Statut : {card['reversibility']}")
 
+                        manual_steps = card.get("manual_correction_steps", [])
+                        if manual_steps:
+                            c_inf.label(text="• Méthode manuelle recommandée :", icon='EDITMODE_HLT')
+                            for step in manual_steps:
+                                c_inf.label(text=f"    › {step}")
+
                         col_btn = b_cd.column(align=True)
                         col_btn.scale_y = 1.15
+                        r_act = col_btn.row(align=True)
                         if card.get("focus_id"):
-                            op_z = col_btn.operator("meshforge.focus_defect", text="Inspecter / Cadrer l'anomalie", icon='VIEWZOOM')
+                            op_z = r_act.operator("meshforge.focus_defect", text="Inspecter (Zoom)", icon='VIEWZOOM')
                             op_z.finding_id = card["focus_id"]
+                        if card.get("focus_id"):
+                            op_m = r_act.operator("meshforge.mark_intentional", text="Valider intentionnel", icon='CHECKMARK')
+                            op_m.finding_id = card["focus_id"]
+                            op_m.unmark = False
                 else:
                     b_c3.label(text="Aucune configuration géométrique risquée ou ambiguë détectée.", icon='CHECKMARK')
 
@@ -354,7 +383,15 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
                     col_obs = b_c4.column(align=True)
                     col_obs.scale_y = 0.85
                     for card in c_list4:
-                        col_obs.label(text=f"• {card['title']} : {card['problem']} ({card['confidence']})")
+                        if card.get("is_intentional"):
+                            r_obs = col_obs.row(align=True)
+                            r_obs.label(text=f"• {card['title']} : {card['problem']} ({card['confidence']})", icon='CHECKMARK')
+                            if card.get("focus_id"):
+                                op_unm = r_obs.operator("meshforge.mark_intentional", text="Rétablir", icon='CANCEL')
+                                op_unm.finding_id = card["focus_id"]
+                                op_unm.unmark = True
+                        else:
+                            col_obs.label(text=f"• {card['title']} : {card['problem']} ({card['confidence']})")
                 else:
                     b_c4.label(text="Aucune observation supplémentaire.", icon='INFO')
 
@@ -515,8 +552,15 @@ class VIEW3D_PT_meshforge_main(VIEW3D_PT_meshforge_base, bpy.types.Panel):
 
             # Protection Dissolution Agressive (Point 2 de Sécurisation UX8)
             if props.decimate_method == 'DISSOLVE':
-                mesh_has_seams = any(e.use_seam for e in mesh.edges)
-                mesh_has_sharp = any(e.use_edge_sharp for e in mesh.edges)
+                cached_diag = get_active_diagnosis(obj.name)
+                facts = cached_diag.get("facts", {}) if cached_diag else {}
+                if "has_seams" in facts:
+                    mesh_has_seams = facts.get("has_seams", False)
+                    mesh_has_sharp = facts.get("has_sharp", False)
+                else:
+                    edge_sample = mesh.edges[:min(200, len(mesh.edges))]
+                    mesh_has_seams = any(e.use_seam for e in edge_sample)
+                    mesh_has_sharp = any(e.use_edge_sharp for e in edge_sample)
                 mesh_has_multiple_mats = len(obj.material_slots) > 1
                 mesh_has_curvature = False
                 if len(mesh.polygons) > 1:

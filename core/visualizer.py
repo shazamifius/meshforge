@@ -336,9 +336,16 @@ def clear_inspection_view(
         for f in bm.faces: f.select = False
         bmesh.update_edit_mesh(mesh)
     else:
-        for v in mesh.vertices: v.select = False
-        for e in mesh.edges: e.select = False
-        for f in mesh.polygons: f.select = False
+        # Optimisation vectorielle C-API pour les gros maillages
+        n_v = len(mesh.vertices)
+        n_e = len(mesh.edges)
+        n_f = len(mesh.polygons)
+        if n_v > 0:
+            mesh.vertices.foreach_set("select", [False] * n_v)
+        if n_e > 0:
+            mesh.edges.foreach_set("select", [False] * n_e)
+        if n_f > 0:
+            mesh.polygons.foreach_set("select", [False] * n_f)
 
     # 2. Restaurer l'attribut actif utilisateur d'origine
     prior_name = _PRIOR_ACTIVE_COLOR_ATTRS.pop(obj.name, None)

@@ -221,3 +221,69 @@ class MESHFORGE_OT_clear_defect_view(bpy.types.Operator):
         _ACTIVE_DIAGNOSIS_CACHE.pop(obj.name, None)
         self.report({'INFO'}, "MeshForge : Inspection visuelle effacée et affichage normal restauré.")
         return {'FINISHED'}
+
+
+class MESHFORGE_OT_mark_intentional(bpy.types.Operator):
+    """Marque ou démarque un constat géométrique comme intentionnel par l'utilisateur"""
+    bl_idname = "meshforge.mark_intentional"
+    bl_label = "Marquer comme intentionnel"
+    bl_description = "Indique que cette géométrie est voulue (ex: N-gones sur plan, ouvertures de tissu), l'excluant des erreurs"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    finding_id: bpy.props.StringProperty(name="Identifiant du constat", default="")
+    unmark: bpy.props.BoolProperty(name="Annuler le marquage", default=False)
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'MESH'
+
+    def execute(self, context):
+        obj = context.active_object
+        if not self.finding_id:
+            self.report({'WARNING'}, "MeshForge : Aucun identifiant de constat spécifié.")
+            return {'CANCELLED'}
+
+        # Lecture de la liste existante
+        stored = list(obj.get("_mf_intentional_findings", [])) if hasattr(obj, "get") else []
+
+        if self.unmark:
+            if self.finding_id in stored:
+                stored.remove(self.finding_id)
+                obj["_mf_intentional_findings"] = stored
+                self.report({'INFO'}, f"MeshForge : Marquage intentionnel retiré pour '{self.finding_id}'.")
+            else:
+                self.report({'INFO'}, "MeshForge : Le constat n'était pas marqué.")
+        else:
+            if self.finding_id not in stored:
+                stored.append(self.finding_id)
+                obj["_mf_intentional_findings"] = stored
+                self.report({'INFO'}, f"MeshForge : Constat '{self.finding_id}' validé comme géométrie intentionnelle.")
+            else:
+                self.report({'INFO'}, "MeshForge : Constat déjà marqué comme intentionnel.")
+
+        # Réévaluation immédiate du diagnostic en mémoire sans recalcul géométrique lourd
+        cached = _ACTIVE_DIAGNOSIS_CACHE.get(obj.name)
+        if cached and "facts" in cached:
+            props = context.scene.meshforge_settings
+            mode = props.asset_target_mode
+            strict_m = getattr(props, "constraint_strict_manifold", False)
+            quads_o = getattr(props, "constraint_quads_only", False)
+            facts = cached["facts"]
+            facts["intentional_finding_ids"] = list(obj.get("_mf_intentional_findings", []))
+            from ..core.structured_diagnosis import evaluate_structured_diagnosis
+            structured = evaluate_structured_diagnosis(facts, mode, strict_manifold=strict_m, quads_only=quads_o)
+            cached["structured"] = structured
+            cached["findings"] = structured.get("findings", [])
+            cached["recommended_actions"] = structured.get("recommended_actions", [])
+        else:
+            props = context.scene.meshforge_settings
+            diag = diagnose_topology(obj, mode=props.asset_target_mode)
+            _ACTIVE_DIAGNOSIS_CACHE[obj.name] = diag
+
+        # Forcer le rafraîchissement des zones 3D et propriétés
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type in ('VIEW_3D', 'PROPERTIES'):
+                    area.tag_redraw()
+
+        return {'FINISHED'}
