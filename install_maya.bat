@@ -8,45 +8,50 @@ echo ======================================================================
 echo.
 
 set "SCRIPT_DIR=%~dp0"
-:: Remove trailing backslash if present
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
+:: Check for meshforge_maya package directory
 set "PKG_DIR=%SCRIPT_DIR%\meshforge_maya"
 if not exist "%PKG_DIR%" (
-    echo [ERROR] Could not find folder meshforge_maya in:
-    echo %SCRIPT_DIR%
-    echo Please make sure you run install_maya.bat from the MeshForge folder.
-    pause
-    exit /b 1
+    if exist "%SCRIPT_DIR%\core" (
+        set "PKG_DIR=%SCRIPT_DIR%"
+    ) else (
+        echo [ERROR] Could not find folder meshforge_maya in:
+        echo %SCRIPT_DIR%
+        pause
+        exit /b 1
+    )
 )
 
 set "MAYA_DOCS=%USERPROFILE%\Documents\maya"
 set "MODULES_DIR=%MAYA_DOCS%\modules"
+set "TARGET_PKG=%MODULES_DIR%\meshforge_maya"
 set "SCRIPTS_DIR=%MAYA_DOCS%\scripts"
 
-echo [*] Registering MeshForge Maya Module...
 if not exist "%MODULES_DIR%" mkdir "%MODULES_DIR%"
 if not exist "%SCRIPTS_DIR%" mkdir "%SCRIPTS_DIR%"
 
+echo [*] Installing MeshForge into Maya modules: "%TARGET_PKG%"...
+xcopy "%PKG_DIR%" "%TARGET_PKG%\" /E /I /Y /Q >nul 2>&1
+
 set "MOD_FILE=%MODULES_DIR%\meshforge_maya.mod"
 (
-    echo + meshforge_maya 0.2.0 %PKG_DIR%
-    echo PYTHONPATH +:= ..
+    echo + meshforge_maya 0.2.0 %MODULES_DIR%
+    echo PYTHONPATH +:= .
 ) > "%MOD_FILE%"
 
 echo [OK] Created module descriptor: "%MOD_FILE%"
 
-echo [*] Registering startup integration...
+echo [*] Registering startup integration in userSetup.py...
 set "USERSETUP=%SCRIPTS_DIR%\userSetup.py"
 
-:: Check if already registered in userSetup.py
 findstr /C:"MeshForge Maya Startup Integration" "%USERSETUP%" >nul 2>&1
 if errorlevel 1 (
     (
         echo.
         echo # --- MeshForge Maya Startup Integration ---
         echo import sys
-        echo mf_path = r'%SCRIPT_DIR%'
+        echo mf_path = r'%MODULES_DIR%'
         echo if mf_path not in sys.path:
         echo     sys.path.insert^(0, mf_path^)
     ) >> "%USERSETUP%"

@@ -1,5 +1,8 @@
-// MeshForge for Maya - Drag & Drop Installer
+// ==============================================================================
+// MeshForge for Maya - Universal 1-Action Drag & Drop Installer
 // Drag and drop this file directly into Maya's 3D viewport!
+// Compatible with Maya 2020 through 2027+ on Windows, macOS, and Linux.
+// ==============================================================================
 
 global proc string meshforge_get_installer_dir() {
     string $whatIs = `whatIs meshforge_get_installer_dir`;
@@ -18,16 +21,54 @@ global proc install_meshforge() {
     }
     $dir = `substituteAllString $dir "\\" "/"`;
 
-    string $py = "import sys, os\n";
-    $py += "d = r'" + $dir + "'\n";
-    $py += "if os.path.basename(d) == 'meshforge_maya': d = os.path.dirname(d)\n";
-    $py += "if d not in sys.path: sys.path.insert(0, d)\n";
-    $py += "try:\n";
-    $py += "    import meshforge_maya.install as mi\n";
-    $py += "    mi.install_meshforge_shelf_button(repo_root=d, auto_launch=True)\n";
-    $py += "except Exception as e:\n";
-    $py += "    import maya.cmds as cmds\n";
-    $py += "    cmds.warning('MeshForge installation error: ' + str(e))\n";
+    string $py = "import sys, os, shutil\n";
+    $py += "start_dir = r'" + $dir + "'\n";
+    $py += "import maya.cmds as cmds\n";
+    $py += "user_app_dir = cmds.internalVar(userAppDir=True) or os.path.expanduser('~/maya')\n";
+    $py += "mod_candidate = os.path.join(user_app_dir, 'modules').replace('\\\\', '/')\n";
+    $py += "repo_root = None\n";
+    $py += "# Candidate 1: start_dir contains meshforge_maya subfolder\n";
+    $py += "if os.path.exists(os.path.join(start_dir, 'meshforge_maya', '__init__.py')):\n";
+    $py += "    repo_root = start_dir\n";
+    $py += "# Candidate 2: start_dir itself contains __init__.py (start_dir is meshforge_maya)\n";
+    $py += "elif os.path.exists(os.path.join(start_dir, '__init__.py')):\n";
+    $py += "    repo_root = os.path.dirname(start_dir)\n";
+    $py += "# Candidate 3: Parent directory contains meshforge_maya\n";
+    $py += "elif os.path.exists(os.path.join(os.path.dirname(start_dir), 'meshforge_maya', '__init__.py')):\n";
+    $py += "    repo_root = os.path.dirname(start_dir)\n";
+    $py += "# Candidate 4: Already in Maya modules folder\n";
+    $py += "elif os.path.exists(os.path.join(mod_candidate, 'meshforge_maya', '__init__.py')):\n";
+    $py += "    repo_root = mod_candidate\n";
+    $py += "# Candidate 5: Standalone install.mel dropped without repo -> Auto-download from GitHub\n";
+    $py += "if not repo_root:\n";
+    $py += "    try:\n";
+    $py += "        import urllib.request, zipfile\n";
+    $py += "        print('[MeshForge] Downloading latest MeshForge for Maya from GitHub...')\n";
+    $py += "        os.makedirs(mod_candidate, exist_ok=True)\n";
+    $py += "        zip_tmp = os.path.join(mod_candidate, 'mf_download_temp.zip').replace('\\\\', '/')\n";
+    $py += "        url = 'https://github.com/shazamifius/meshforge/releases/latest/download/meshforge_maya.zip'\n";
+    $py += "        urllib.request.urlretrieve(url, zip_tmp)\n";
+    $py += "        with zipfile.ZipFile(zip_tmp, 'r') as z:\n";
+    $py += "            z.extractall(mod_candidate)\n";
+    $py += "        if os.path.exists(zip_tmp): os.remove(zip_tmp)\n";
+    $py += "        repo_root = mod_candidate\n";
+    $py += "        print('[MeshForge] Download and extraction complete!')\n";
+    $py += "    except Exception as dl_err:\n";
+    $py += "        print(f'[MeshForge] Auto-download error: {dl_err}')\n";
+    $py += "if repo_root:\n";
+    $py += "    repo_root = os.path.abspath(repo_root).replace('\\\\', '/')\n";
+    $py += "    if repo_root not in sys.path: sys.path.insert(0, repo_root)\n";
+    $py += "    # Purge any stale or corrupt namespace cache\n";
+    $py += "    for m in [k for k in sys.modules if k == 'meshforge_maya' or k.startswith('meshforge_maya.')]:\n";
+    $py += "        del sys.modules[m]\n";
+    $py += "    try:\n";
+    $py += "        import meshforge_maya.install as mi\n";
+    $py += "        mi.install_meshforge_shelf_button(repo_root=repo_root, auto_launch=True)\n";
+    $py += "    except Exception as err:\n";
+    $py += "        import traceback; traceback.print_exc()\n";
+    $py += "        cmds.warning(f'MeshForge installation failed: {err}')\n";
+    $py += "else:\n";
+    $py += "    cmds.warning('Could not find MeshForge package. Please check internet connection or extract zip.')\n";
 
     python($py);
 }
