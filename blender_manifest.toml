@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "meshforge"
-version = "0.1.0"
+version = "0.2.0"
 name = "MeshForge"
 tagline = "Analyse, réparation, nettoyage et simplification intelligente des maillages 3D"
 maintainer = "MeshForge Team"

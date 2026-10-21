@@ -16,11 +16,22 @@ def build_packages():
         os.remove(blender_zip_path)
 
     with zipfile.ZipFile(blender_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.write(os.path.join(repo_root, "__init__.py"), arcname="meshforge/__init__.py")
-        zf.write(os.path.join(repo_root, "MANUAL.md"), arcname="meshforge/MANUAL.md")
-        zf.write(os.path.join(repo_root, "README.md"), arcname="meshforge/README.md")
+        # Root metadata and source files for Blender
+        for root_file in [
+            "__init__.py",
+            "preferences.py",
+            "properties.py",
+            "blender_manifest.toml",
+            "MANUAL.md",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSES.md"
+        ]:
+            src_path = os.path.join(repo_root, root_file)
+            if os.path.exists(src_path):
+                zf.write(src_path, arcname=f"meshforge/{root_file}")
 
-        for folder in ["core", "ui"]:
+        for folder in ["core", "operators", "ui"]:
             folder_path = os.path.join(repo_root, folder)
             for root, dirs, files in os.walk(folder_path):
                 if "__pycache__" in root:

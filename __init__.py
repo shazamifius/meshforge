@@ -5,7 +5,7 @@ Cible : Blender 5.x LTS.
 bl_info = {
     "name": "MeshForge",
     "author": "MeshForge Project",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),  # Compatible Blender 4.2+ et Blender 5.x LTS
     "location": "View3D > Sidebar (N) > MeshForge",
     "description": "Analyse, réparation, nettoyage et simplification intelligente des maillages",
