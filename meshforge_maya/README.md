@@ -1,4 +1,27 @@
+<div align="center">
+
 # MeshForge for Autodesk Maya ⚡
+### Professional 3D Mesh Inspection, Repair & Decimation Suite
+
+<br/>
+
+<a href="https://github.com/shazamifius/meshforge/releases/latest/download/meshforge_maya.zip">
+  <img src="https://img.shields.io/badge/📦_DOWNLOAD_SCRIPT_MAYA-DOWNLOAD_(.ZIP)-0696D7?style=for-the-badge&logo=autodesk&logoColor=white" height="52" alt="Download Script Maya" />
+</a>
+&nbsp;&nbsp;&nbsp;&nbsp;
+<a href="https://github.com/shazamifius/meshforge/releases/latest/download/install.mel">
+  <img src="https://img.shields.io/badge/⚡_DOWNLOAD_INSTALL.MEL-(DIRECT)-00A8FF?style=for-the-badge&logo=autodesk&logoColor=white" height="52" alt="Download install.mel" />
+</a>
+
+<br/><br/>
+
+[![GitHub Release](https://img.shields.io/github/v/release/shazamifius/meshforge?color=2ecc71&style=flat-square)](https://github.com/shazamifius/meshforge/releases/latest)
+[![Maya Tests](https://img.shields.io/badge/Maya%20Tests-16%2F16%20Passing-brightgreen?style=flat-square&logo=autodesk)](tests/test_maya_runner.py)
+[![Documentation](https://img.shields.io/badge/Documentation-MANUAL.md-blue?style=flat-square)](../MANUAL.md)
+
+</div>
+
+---
 
 **MeshForge for Maya** brings the complete 3D mesh analysis, repair, geometric cleanup, and intelligent simplification toolset of MeshForge to **Autodesk Maya (2020 through Maya 2027+)**.
 
@@ -12,7 +35,7 @@ Engineered with complete **1:1 feature parity with MeshForge for Blender**, Mesh
 > Compatible with **Windows, macOS, and Linux** across **Maya 2020, 2022, 2023, 2024, 2025, 2026, 2027+**.
 
 1. Launch Autodesk Maya.
-2. Drag and drop `install.mel` (or `meshforge_maya/install.py`) directly from your file manager into **Maya's 3D Viewport**.
+2. Drag and drop [**`install.mel`**](https://github.com/shazamifius/meshforge/releases/latest/download/install.mel) (or `meshforge_maya/install.py`) directly from your file manager into **Maya's 3D Viewport**.
 3. A dialog confirms installation, and a custom **MeshForge** shelf button is instantly added to your active shelf!
 4. Click the button to launch MeshForge!
 
@@ -78,12 +101,6 @@ MeshForge for Maya includes an exhaustive test suite covering all algorithms and
 # Run the complete test suite headlessly via mayapy:
 & "C:\Program Files\Autodesk\Maya2027\bin\mayapy.exe" meshforge_maya/tests/test_maya_runner.py
 ```
-
-### Verified Test Cases:
-- `test_maya_clean.py`: Accurate component telemetry, morphological N-gon cutting, conservative defect cleanup, planar quadrangulation.
-- `test_maya_decimate.py`: QEM edge collapse decimation, target triangle budget enforcement, blendshape guard protection, Hausdorff & mean surface deviation.
-- `test_maya_pipeline.py`: Non-destructive duplicate lifecycle, full sequential pipeline execution.
-- `test_maya_ux_full.py`: Selection telemetry, Section 1 button clicks, 8 profiles switching, Section 2 slider estimation, collapse vs dissolve toggle, blendshape alert box, and Section 3 report export.
 
 ---
 

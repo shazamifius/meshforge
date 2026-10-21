@@ -1,4 +1,43 @@
-# MeshForge ⚡ (Blender & Autodesk Maya)
+<div align="center">
+
+# ⚡ MeshForge ⚡
+### The Professional 3D Mesh Inspection, Repair & Decimation Suite for Blender & Maya
+
+<br/>
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="https://github.com/shazamifius/meshforge/releases/latest/download/meshforge_blender.zip">
+        <img src="https://img.shields.io/badge/📦_INSTALL_ADDON_BLENDER-DOWNLOAD_(.ZIP)-EA7600?style=for-the-badge&logo=blender&logoColor=white" height="52" alt="Install Addon Blender" />
+      </a>
+      <br/><br/>
+      <b>Compatible Blender 4.2 LTS / 5.2+ LTS</b><br/>
+      <i>Direct 1-click download ready for Blender (Install from Disk)</i><br/>
+      <code>Edit > Preferences > Add-ons > Install from Disk...</code>
+    </td>
+    <td align="center" width="50%">
+      <a href="https://github.com/shazamifius/meshforge/releases/latest/download/meshforge_maya.zip">
+        <img src="https://img.shields.io/badge/📦_DOWNLOAD_SCRIPT_MAYA-DOWNLOAD_(.ZIP)-0696D7?style=for-the-badge&logo=autodesk&logoColor=white" height="52" alt="Download Script Maya" />
+      </a>
+      <br/><br/>
+      <b>Compatible Autodesk Maya 2020 through 2027+</b><br/>
+      <i>Direct 1-click download with <code>install.mel</code> (Drag & Drop installer)</i><br/>
+      <a href="https://github.com/shazamifius/meshforge/releases/latest/download/install.mel"><b>⚡ Or direct download install.mel only</b></a>
+    </td>
+  </tr>
+</table>
+
+<br/>
+
+[![GitHub Release](https://img.shields.io/github/v/release/shazamifius/meshforge?color=2ecc71&style=flat-square)](https://github.com/shazamifius/meshforge/releases/latest)
+[![Blender Tests](https://img.shields.io/badge/Blender%20Tests-Passing-brightgreen?style=flat-square&logo=blender)](tests/test_runner.py)
+[![Maya Tests](https://img.shields.io/badge/Maya%20Tests-16%2F16%20Passing-brightgreen?style=flat-square&logo=autodesk)](meshforge_maya/tests/test_maya_runner.py)
+[![Documentation](https://img.shields.io/badge/Documentation-MANUAL.md-blue?style=flat-square)](MANUAL.md)
+
+</div>
+
+---
 
 **MeshForge** is an advanced 3D mesh analysis, repair, geometric cleanup, and intelligent simplification suite available for both **Blender** and **Autodesk Maya**.
 
@@ -16,7 +55,7 @@ Engineered with an uncompromising **non-destructive architecture by default**, M
 Choose either method below:
 - **Option 1: Viewport Drag & Drop (Easiest — 0 Terminal!):**
   1. Open Maya.
-  2. Drag and drop `install.mel` directly into Maya's 3D viewport.
+  2. Drag and drop [**`install.mel`**](https://github.com/shazamifius/meshforge/releases/latest/download/install.mel) directly into Maya's 3D viewport.
   3. That's it! A **MeshForge** button is created on your shelf and the window opens automatically.
 - **Option 2: 1-Click Installer (Outside Maya):**
   - **Windows:** Double-click `install_maya.bat`.
@@ -27,21 +66,19 @@ Choose either method below:
   ```
 
 ### 🅱️ For Blender (4.2+ & 5.2+ LTS)
-1. Copy or symlink this folder into your Blender addons directory:
-   - **Windows:** `%APPDATA%\Blender Foundation\Blender\<version>\scripts\addons\meshforge`
-   - **Linux:** `~/.config/blender/<version>/scripts/addons/meshforge`
-   - **macOS:** `~/Library/Application Support/Blender/<version>/scripts/addons/meshforge`
-2. In Blender, open `Edit > Preferences > Add-ons` and enable **MeshForge**.
-3. In the 3D Viewport, press `N` to open the sidebar tab **MeshForge**.
+1. Download [**`meshforge_blender.zip`**](https://github.com/shazamifius/meshforge/releases/latest/download/meshforge_blender.zip).
+2. In Blender, go to `Edit > Preferences > Add-ons > Install from Disk...` and select the downloaded `.zip`.
+3. Enable **MeshForge** with the checkbox.
+4. In the 3D Viewport, press `N` to open the sidebar tab **MeshForge**.
 
 ---
 
 ## 🎯 Supported DCC Platforms
 
-| Platform | Location | Supported Versions | Operating Systems | UI Framework |
-| :--- | :--- | :--- | :--- | :--- |
-| **Blender** | Root (`core/`, `ui/`) | Blender 4.2 LTS to 5.2+ LTS | Windows, macOS, Linux | Native 3D Viewport N-Panel |
-| **Autodesk Maya** | `meshforge_maya/` | Maya 2020, 2022, 2023, 2024, 2025, 2026, 2027+ | Windows, macOS, Linux | Dockable PySide6 / PySide2 Workspace Window |
+| Platform | Location | Supported Versions | Operating Systems | UI Framework | Direct Download |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Blender** | Root (`core/`, `ui/`) | Blender 4.2 LTS to 5.2+ LTS | Windows, macOS, Linux | Native 3D Viewport N-Panel | [📦 Download Blender Addon (.zip)](https://github.com/shazamifius/meshforge/releases/latest/download/meshforge_blender.zip) |
+| **Autodesk Maya** | `meshforge_maya/` | Maya 2020, 2022, 2023, 2024, 2025, 2026, 2027+ | Windows, macOS, Linux | Dockable PySide6 / PySide2 Window | [📦 Download Maya Script (.zip)](https://github.com/shazamifius/meshforge/releases/latest/download/meshforge_maya.zip) |
 
 ---
 
@@ -109,6 +146,10 @@ meshforge/
 ├── install.mel                # Maya drag-and-drop installer
 ├── install_maya.bat           # Windows 1-click double-click installer
 ├── install_maya.sh            # Unix/macOS 1-click installer
+├── package_releases.py        # Automated release packager script
+├── releases/                  # Prebuilt standalone zip archives
+│   ├── meshforge_blender.zip  # Ready to install in Blender Preferences
+│   └── meshforge_maya.zip     # Ready for Maya (drag & drop install.mel)
 ├── __init__.py                # Blender add-on entrypoint
 ├── core/                      # Blender core geometry & telemetry algorithms
 ├── ui/                        # Blender native UI layouts & operators
