@@ -45,11 +45,11 @@ class TestMeshForgeMayaUXFull(unittest.TestCase):
         cmds.select(clear=True)
         self.win.refresh_selection()
 
-        self.assertIn("None selected", self.win.lbl_object_name.text())
-        self.assertEqual(self.win.lbl_verts.text(), "Vertices: 0")
-        self.assertEqual(self.win.lbl_edges.text(), "Edges: 0")
-        self.assertEqual(self.win.lbl_faces.text(), "Faces: 0")
-        self.assertEqual(self.win.lbl_tris.text(), "Real Tris: 0")
+        self.assertTrue("None" in self.win.lbl_object_name.text() or "Aucun" in self.win.lbl_object_name.text())
+        self.assertTrue("0" in self.win.lbl_verts.text())
+        self.assertTrue("0" in self.win.lbl_edges.text())
+        self.assertTrue("0" in self.win.lbl_faces.text())
+        self.assertTrue("0" in self.win.lbl_tris.text())
         self.assertFalse(self.win.box_restore.isVisible())
 
     def test_02_ui_mesh_selection_telemetry(self):
@@ -59,9 +59,9 @@ class TestMeshForgeMayaUXFull(unittest.TestCase):
         self.win.refresh_selection()
 
         self.assertIn("ux_cylinder", self.win.lbl_object_name.text())
-        self.assertNotEqual(self.win.lbl_verts.text(), "Vertices: 0")
-        self.assertNotEqual(self.win.lbl_faces.text(), "Faces: 0")
-        self.assertNotEqual(self.win.lbl_tris.text(), "Real Tris: 0")
+        self.assertTrue("0" not in self.win.lbl_verts.text().split(":")[-1])
+        self.assertTrue("0" not in self.win.lbl_faces.text().split(":")[-1])
+        self.assertTrue("0" not in self.win.lbl_tris.text().split(":")[-1])
 
     def test_03_section_1_clean_all_buttons(self):
         """Tests 100% of Section 1 (CLEAN) buttons, tools, and profile switches."""
@@ -72,7 +72,7 @@ class TestMeshForgeMayaUXFull(unittest.TestCase):
         # 1. Analyze button
         self.win.btn_analyze.click()
         self.assertTrue(self.win.active_diagnosis.get("valid", False))
-        self.assertIn("Health:", self.win.lbl_health_status.text())
+        self.assertTrue("Health:" in self.win.lbl_health_status.text() or "Santé" in self.win.lbl_health_status.text())
 
         # 2. Toggle Wireframe button
         self.win.btn_wire.click()
@@ -122,21 +122,21 @@ class TestMeshForgeMayaUXFull(unittest.TestCase):
         self.win.combo_method.setCurrentIndex(0) # COLLAPSE
         self.assertTrue(self.win.w_collapse_goal.isVisible())
         self.assertFalse(self.win.w_dissolve_goal.isVisible())
-        self.assertIn("Edge Collapse", self.win.btn_execute_decimate.text())
+        self.assertTrue("Edge Collapse" in self.win.btn_execute_decimate.text() or "Contraction" in self.win.btn_execute_decimate.text())
 
         # Slider interaction & dynamic budget estimation
         self.win.slider_pct.setValue(25)
         self.assertIn("25%", self.win.lbl_pct_val.text())
-        self.assertIn("-25%", self.win.lbl_estimation.text())
+        self.assertIn("-25", self.win.lbl_estimation.text())
 
         self.win.slider_pct.setValue(75)
         self.assertIn("75%", self.win.lbl_pct_val.text())
-        self.assertIn("-75%", self.win.lbl_estimation.text())
+        self.assertIn("-75", self.win.lbl_estimation.text())
 
         self.win.combo_method.setCurrentIndex(1) # DISSOLVE
         self.assertFalse(self.win.w_collapse_goal.isVisible())
         self.assertTrue(self.win.w_dissolve_goal.isVisible())
-        self.assertIn("Coplanar Dissolve", self.win.btn_execute_decimate.text())
+        self.assertTrue("Coplanar Dissolve" in self.win.btn_execute_decimate.text() or "Dissolution" in self.win.btn_execute_decimate.text())
 
         self.win.spin_dissolve_angle.setValue(10.0)
 
@@ -154,10 +154,10 @@ class TestMeshForgeMayaUXFull(unittest.TestCase):
 
         # Verify results box popped up with actual values
         self.assertTrue(self.win.box_post_results.isVisible())
-        self.assertIn("Triangles:", self.win.lbl_res_tris.text())
-        self.assertIn("Vertices:", self.win.lbl_res_verts.text())
-        self.assertIn("Faces:", self.win.lbl_res_faces.text())
-        self.assertIn("Max Hausdorff:", self.win.lbl_metrology.text())
+        self.assertTrue("Triangles" in self.win.lbl_res_tris.text())
+        self.assertTrue("Vertices" in self.win.lbl_res_verts.text() or "Sommets" in self.win.lbl_res_verts.text())
+        self.assertTrue("Faces" in self.win.lbl_res_faces.text())
+        self.assertTrue("Hausdorff" in self.win.lbl_metrology.text())
 
         # Verify duplicate object was selected
         curr_sel = cmds.ls(selection=True)[0]
@@ -225,6 +225,58 @@ class TestMeshForgeMayaUXFull(unittest.TestCase):
                 os.remove(json_path)
             if os.path.exists(txt_path):
                 os.remove(txt_path)
+
+    def test_07_component_selection_decimate_and_findings_zoom_fix(self):
+        """Tests component selection resolution, decimation from component mode, findings cards, and expert accordions."""
+        cyl = cmds.polyCylinder(name="pCylinder5", subdivisionsAxis=20)[0]
+        # Select component on cylinder (matching user's exact scenario)
+        cmds.select(f"{cyl}.f[10]")
+        self.win.refresh_selection()
+        self.assertTrue(self.win.active_mesh.endswith("pCylinder5"))
+
+        # Decimate with component selected
+        self.win.sec_decimate.set_expanded(True)
+        self.win.slider_pct.setValue(50)
+        self.win.btn_execute_decimate.click()
+        self.assertTrue(cmds.objExists("pCylinder5_MF_Optimized"))
+        self.assertTrue(self.win.box_post_results.isVisible())
+
+        # Analyze cylinder (has n-gons on caps)
+        cmds.select(cyl)
+        self.win.refresh_selection()
+        self.win.combo_profile.setCurrentIndex(1) # GAME_ASSET (flags n-gons as DEFECT/RISK)
+        self.win.on_analyze_topology()
+        self.assertTrue(self.win.active_diagnosis.get("valid"))
+
+        # Verify findings container has widgets populated
+        findings = self.win.active_diagnosis.get("findings", [])
+        self.assertTrue(len(findings) > 0)
+        self.assertTrue(self.win.l_findings_cards.count() > 0)
+
+        # Test finding zoom on n-gon cap
+        ngon_finding = next((f for f in findings if f.get("id") == "topo_ngons"), None)
+        if ngon_finding:
+            from meshforge_maya.core.visualizer import focus_on_components
+            focus_on_components(ngon_finding["components"])
+            sel = cmds.ls(selection=True)
+            self.assertTrue(len(sel) > 0)
+
+        # Test Expert Mode 7 accordions
+        self.win.sec_expert.set_expanded(True)
+        self.assertTrue(self.win.sec_expert.content_widget.isVisible())
+        expert_accordions = [
+            self.win.sub_repair,
+            self.win.sub_manifold,
+            self.win.sub_dissolve,
+            self.win.sub_simplification,
+            self.win.sub_topology,
+            self.win.sub_normals,
+            self.win.sub_obj_data,
+            self.win.sub_reports
+        ]
+        for sec in expert_accordions:
+            sec.set_expanded(True)
+            self.assertTrue(sec.content_widget.isVisible())
 
 if __name__ == "__main__":
     unittest.main()

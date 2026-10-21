@@ -104,7 +104,7 @@ PROFILES = {
 }
 
 class DiagnosticFinding:
-    """Represents a structured geometric finding."""
+    """Represents a structured geometric finding with 3D components and fix actions."""
 
     def __init__(
         self,
@@ -116,6 +116,8 @@ class DiagnosticFinding:
         consequence: str,
         recommendation: str,
         components: Optional[List[str]] = None,
+        operator: Optional[str] = None,
+        operator_text: Optional[str] = None,
         centroid: Optional[Tuple[float, float, float]] = None,
         manual_steps: Optional[List[str]] = None,
         is_intentional: bool = False
@@ -127,7 +129,12 @@ class DiagnosticFinding:
         self.explanation = explanation
         self.consequence = consequence
         self.recommendation = recommendation
-        self.components = components or []
+        if isinstance(components, (list, tuple, set)):
+            self.components = list(components)
+        else:
+            self.components = []
+        self.operator = operator
+        self.operator_text = operator_text
         self.centroid = centroid or (0.0, 0.0, 0.0)
         self.manual_steps = manual_steps or []
         self.is_intentional = is_intentional
@@ -142,7 +149,9 @@ class DiagnosticFinding:
             "consequence": self.consequence,
             "recommendation": self.recommendation,
             "components_count": len(self.components),
-            "components": self.components[:100], # preview sample
+            "components": self.components[:200], # preview sample
+            "operator": self.operator,
+            "operator_text": self.operator_text,
             "centroid": self.centroid,
             "manual_steps": self.manual_steps,
             "is_intentional": self.is_intentional
@@ -163,6 +172,8 @@ def evaluate_mesh_diagnosis(
     # 1. Non-Manifold Edges & Vertices
     nm_edges = stats.get("non_manifold_edges_count", 0)
     nm_verts = stats.get("non_manifold_verts_count", 0)
+    nm_comps = stats.get("non_manifold_edges_components", []) + stats.get("non_manifold_verts_components", [])
+
     if nm_edges > 0 or nm_verts > 0:
         is_int = ("topo_non_manifold" in intentional_set)
         sev = "RISK" if (is_int and not strict_manifold) else "DEFECT"
@@ -174,6 +185,9 @@ def evaluate_mesh_diagnosis(
             explanation=f"Mesh has {nm_edges} non-manifold edges (shared by 3+ faces) or {nm_verts} non-manifold vertices.",
             consequence="Causes lighting artifacts, subdivision tearing, and crashes game physics engines or 3D slicers.",
             recommendation="Clean non-manifold elements or delete internal divider walls.",
+            components=nm_comps,
+            operator="remove_internal_walls",
+            operator_text="Supprimer les parois internes",
             manual_steps=[
                 "Select object, run 'Inspect Internal Walls' to check for internal divider faces.",
                 "Or use Mesh > Cleanup > Non-manifold geometry in Maya."
@@ -183,6 +197,7 @@ def evaluate_mesh_diagnosis(
 
     # 2. Zero-Area Faces
     zero_faces = stats.get("zero_area_faces_count", 0)
+    zero_comps = stats.get("zero_area_faces_components", [])
     if zero_faces > 0:
         is_int = ("geom_zero_faces" in intentional_set)
         findings.append(DiagnosticFinding(
@@ -193,11 +208,15 @@ def evaluate_mesh_diagnosis(
             explanation=f"Detected {zero_faces} degenerate faces with near-zero surface area (<= 1e-7 m²).",
             consequence="Creates baking seams, raytracing NaN artifacts, and normal calculation division by zero.",
             recommendation="Execute Conservative Cleanup to safely dissolve zero-area faces.",
+            components=zero_comps,
+            operator="conservative_clean",
+            operator_text="Nettoyer les dégénérescences",
             is_intentional=is_int
         ))
 
     # 3. Open Boundaries (Cloth vs Watertight)
     open_edges = stats.get("open_boundary_edges_count", 0)
+    open_comps = stats.get("open_boundary_edges_components", [])
     if open_edges > 0:
         is_int = ("topo_open_boundary" in intentional_set)
         if profile_id == "EXPORT_PREP" or strict_manifold:
@@ -221,11 +240,13 @@ def evaluate_mesh_diagnosis(
             explanation=f"Mesh has {open_edges} border edges with only 1 connected face.",
             consequence=conseq,
             recommendation=rec,
+            components=open_comps,
             is_intentional=is_int
         ))
 
     # 4. N-Gons (5+ vertices)
     ngons = stats.get("ngons_count", 0)
+    ngon_comps = stats.get("ngons_components", [])
     if ngons > 0:
         is_int = ("topo_ngons" in intentional_set)
         if profile_id == "GAME_ASSET":
@@ -253,11 +274,15 @@ def evaluate_mesh_diagnosis(
             explanation=f"Found {ngons} polygons containing 5 or more vertices.",
             consequence=conseq,
             recommendation=rec,
+            components=ngon_comps,
+            operator="cut_ngons",
+            operator_text="Découper les N-Gones",
             is_intentional=is_int
         ))
 
     # 5. Triangles in Quad-Only or Rigged Profiles
     tris = stats.get("tris_count", 0)
+    tri_comps = stats.get("tris_components", [])
     if tris > 0 and (quads_only or profile_id == "DEFORMABLE_CHAR"):
         is_int = ("topo_triangles" in intentional_set)
         sev = "DEFECT" if quads_only else "RISK"
@@ -269,10 +294,29 @@ def evaluate_mesh_diagnosis(
             explanation=f"Detected {tris} triangular faces on a model requiring quad-dominant topology.",
             consequence="Triangles interrupt continuous quad loops needed for character rigging and clean joint bending.",
             recommendation="Run Quadrangulate (Tris -> Quads) to merge coplanar triangle pairs.",
+            components=tri_comps,
+            operator="quadrangulate",
+            operator_text="Quadranguler les triangles",
             is_intentional=is_int
         ))
 
-    # 6. BlendShapes (Shape Keys) Notice
+    # 6. Internal Walls
+    iw_comps = stats.get("internal_walls_components", [])
+    if iw_comps:
+        findings.append(DiagnosticFinding(
+            finding_id="topo_internal_walls",
+            name=f"Internal Occluded Divider Walls ({len(iw_comps)} faces)",
+            category="TOPOLOGY",
+            severity="DEFECT" if profile_id == "EXPORT_PREP" else "RISK",
+            explanation=f"Detected {len(iw_comps)} internal occluded divider faces inside closed geometry.",
+            consequence="Causes non-manifold edges, disrupts boolean unions, and produces slicing errors in 3D printing.",
+            recommendation="Inspect and delete occluded divider walls.",
+            components=iw_comps,
+            operator="remove_internal_walls",
+            operator_text="Supprimer les parois internes"
+        ))
+
+    # 7. BlendShapes (Shape Keys) Notice
     if stats.get("has_blendshapes", False):
         findings.append(DiagnosticFinding(
             finding_id="deform_blendshapes",
@@ -288,7 +332,7 @@ def evaluate_mesh_diagnosis(
             ]
         ))
 
-    # 7. Disjoint Shells
+    # 8. Disjoint Shells
     shells = stats.get("disjoint_shells_count", 1)
     if shells > 1:
         findings.append(DiagnosticFinding(
@@ -329,8 +373,9 @@ def evaluate_mesh_diagnosis(
             "effect": "Dissolves corrupt faces without altering valid geometry.",
             "data_impact": "Zero attribute loss.",
             "reversibility": "100% Reversible via Snapshot.",
+            "components": zero_comps,
             "operator": "conservative_clean",
-            "operator_text": "Run Conservative Cleanup"
+            "operator_text": "Nettoyer les dégénérescences"
         })
 
     # Category 2: Targeted Optimizations
@@ -343,8 +388,9 @@ def evaluate_mesh_diagnosis(
             "effect": "Triangulates convex and concave polygons while preserving UV boundaries.",
             "data_impact": "Preserves UVs and material assignments.",
             "reversibility": "Reversible via Snapshot.",
+            "components": ngon_comps,
             "operator": "cut_ngons",
-            "operator_text": "Cut N-Gons"
+            "operator_text": "Découper les N-Gones"
         })
     if tris > 0 and (quads_only or profile_id == "DEFORMABLE_CHAR"):
         rec_targeted.append({
@@ -355,22 +401,24 @@ def evaluate_mesh_diagnosis(
             "effect": "Merges coplanar triangles into quads respecting seams and hard edges.",
             "data_impact": "Preserves UV borders.",
             "reversibility": "Reversible via Snapshot.",
+            "components": tri_comps,
             "operator": "quadrangulate",
-            "operator_text": "Quadrangulate"
+            "operator_text": "Quadranguler les triangles"
         })
 
     # Category 3: Risky Actions
-    if nm_edges > 0:
+    if iw_comps or nm_edges > 0:
         rec_risky.append({
             "title": "Remove Internal Occluded Walls",
             "confidence": "Review Required",
-            "problem": f"{nm_edges} non-manifold edges caused by interior walls.",
+            "problem": f"{len(iw_comps) or nm_edges} internal occluded faces / non-manifold edges.",
             "zone": "Internal partitions",
             "effect": "Removes occluded divider faces to heal manifold edges.",
             "data_impact": "Verify that faces are truly internal before deleting.",
             "reversibility": "Reversible via Snapshot.",
+            "components": iw_comps or nm_comps,
             "operator": "remove_internal_walls",
-            "operator_text": "Remove Internal Walls"
+            "operator_text": "Supprimer les parois internes"
         })
 
     # Category 4: Observations
@@ -380,6 +428,7 @@ def evaluate_mesh_diagnosis(
             "problem": f.explanation,
             "confidence": "Informational",
             "focus_id": f.id,
+            "components": f.components,
             "is_intentional": f.is_intentional
         })
 
@@ -394,7 +443,8 @@ def evaluate_mesh_diagnosis(
             "observations_count": len(obs),
             "total_findings": len(findings)
         },
-        "findings": findings,
+        "findings": [f.to_dict() for f in findings],
+        "findings_objects": findings,
         "recommendation_groups": {
             "conservative": rec_conservative,
             "targeted": rec_targeted,

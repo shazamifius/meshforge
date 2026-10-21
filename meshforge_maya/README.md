@@ -16,7 +16,7 @@
 <br/><br/>
 
 [![GitHub Release](https://img.shields.io/github/v/release/shazamifius/meshforge?color=2ecc71&style=flat-square)](https://github.com/shazamifius/meshforge/releases/latest)
-[![Maya Tests](https://img.shields.io/badge/Maya%20Tests-16%2F16%20Passing-brightgreen?style=flat-square&logo=autodesk)](tests/test_maya_runner.py)
+[![Maya Tests](https://img.shields.io/badge/Maya%20Tests-18%2F18%20Passing-brightgreen?style=flat-square&logo=autodesk)](tests/test_maya_runner.py)
 [![Documentation](https://img.shields.io/badge/Documentation-MANUAL.md-blue?style=flat-square)](../MANUAL.md)
 
 </div>
