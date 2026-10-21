@@ -1,0 +1,35 @@
+// MeshForge for Maya - Drag & Drop Installer
+// Drag and drop this file directly into Maya's 3D viewport!
+
+global proc string meshforge_get_installer_dir() {
+    string $whatIs = `whatIs meshforge_get_installer_dir`;
+    string $prefix = "Mel procedure found in: ";
+    if (startsWith($whatIs, $prefix)) {
+        string $filePath = `substring $whatIs (size($prefix) + 1) (size($whatIs))`;
+        return `dirname $filePath`;
+    }
+    return "";
+}
+
+global proc install_meshforge() {
+    string $dir = meshforge_get_installer_dir();
+    if ($dir == "") {
+        $dir = `pwd`;
+    }
+    $dir = `substituteAllString $dir "\\" "/"`;
+
+    string $py = "import sys, os\n";
+    $py += "d = r'" + $dir + "'\n";
+    $py += "if os.path.basename(d) == 'meshforge_maya': d = os.path.dirname(d)\n";
+    $py += "if d not in sys.path: sys.path.insert(0, d)\n";
+    $py += "try:\n";
+    $py += "    import meshforge_maya.install as mi\n";
+    $py += "    mi.install_meshforge_shelf_button(repo_root=d, auto_launch=True)\n";
+    $py += "except Exception as e:\n";
+    $py += "    import maya.cmds as cmds\n";
+    $py += "    cmds.warning('MeshForge installation error: ' + str(e))\n";
+
+    python($py);
+}
+
+install_meshforge();
